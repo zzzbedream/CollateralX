@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+/* ─── CollateralX Design System ─── */
+
+@theme {
+  --color-cx-navy: #0a1628;
+  --color-cx-navy-light: #132240;
+  --color-cx-navy-mid: #1a2d4f;
+  --color-cx-blue: #2563eb;
+  --color-cx-blue-hover: #1d4ed8;
+  --color-cx-blue-light: #3b82f6;
+  --color-cx-accent: #06d6a0;
+  --color-cx-accent-dark: #05b88a;
+  --color-cx-white: #ffffff;
+  --color-cx-gray-100: #f1f5f9;
+  --color-cx-gray-200: #e2e8f0;
+  --color-cx-gray-300: #cbd5e1;
+  --color-cx-gray-400: #94a3b8;
+  --color-cx-gray-500: #64748b;
+  --color-cx-danger: #ef4444;
+  --color-cx-success: #10b981;
+  --color-cx-warning: #f59e0b;
+  --font-family-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ─── Base ─── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-sans);
+  background: linear-gradient(135deg, var(--color-cx-navy) 0%, var(--color-cx-navy-light) 50%, var(--color-cx-navy-mid) 100%);
+  color: var(--color-cx-white);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ─── Animations ─── */
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(37, 99, 235, 0.3); }
+  50%      { box-shadow: 0 0 40px rgba(37, 99, 235, 0.6); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes countUp {
+  from { opacity: 0; transform: scale(0.8); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out both;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.08) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.animate-count-up {
+  animation: countUp 0.5s ease-out both;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}

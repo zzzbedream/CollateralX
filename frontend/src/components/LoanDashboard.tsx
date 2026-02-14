@@ -1,16 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACTS } from '../contracts';
+import {
+    Search, X, TrendingUp, Activity, Zap, Shield, AlertTriangle,
+    BarChart3, Settings as SettingsIcon, Store, ChevronRight, ExternalLink,
+    RefreshCw, ToggleLeft, ToggleRight, Trash2, Terminal, Cpu, Wheat, Bolt,
+    HardHat, ShoppingBag, Container, FileCode2, Fuel, Lock, Vote, Banknote,
+    ArrowUpRight, Layers, Clock, CheckCircle2, XCircle, Wallet, CircleDollarSign,
+    Landmark, ScrollText,
+} from 'lucide-react';
 
-// ⚠️ REEMPLAZA ESTAS DIRECCIONES CON LAS DE TU DEPLOYMENTS.JSON
-// Para el hackathon, si no tienes el JSON a mano, pégalas aquí.
+//  CONTRACT SETUP 
 const LENDING_POOL_ADDRESS = CONTRACTS.LENDING_POOL;
 const NFT_ADDRESS = CONTRACTS.MOCK_NFT;
+const MOCK_USDC_ADDRESS = CONTRACTS.MOCK_USDC;
 
-// ABIs Mínimos (Solo lo que necesitamos para el dashboard)
 const LENDING_ABI = [
     { inputs: [{ internalType: "uint256", name: "tokenId", type: "uint256" }], name: "depositCollateralAndBorrow", outputs: [], stateMutability: "nonpayable", type: "function" },
 ] as const;
@@ -19,153 +25,1014 @@ const NFT_ABI = [
     { inputs: [{ name: "to", type: "address" }, { name: "tokenId", type: "uint256" }], name: "approve", outputs: [], stateMutability: "nonpayable", type: "function" },
 ] as const;
 
-export default function LendingDashboard() {
-    const { isConnected } = useAccount();
-    const [step, setStep] = useState(0); // 0: Idle, 1: Approving, 2: Valuating (Stylus), 3: Success
+const MOCK_USDC_ABI = [
+    { inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], name: "mint", outputs: [], stateMutability: "nonpayable", type: "function" },
+] as const;
 
-    // 1. Escritura: Aprobar NFT
+//  TYPES 
+type Sector = 'All' | 'Agro' | 'Tech' | 'Energy' | 'Heavy' | 'Retail' | 'Logistics';
+type RiskRating = 'AAA' | 'AA+' | 'AA' | 'A+' | 'A' | 'BBB' | 'BB+' | 'B+';
+type AuditStatus = 'verified' | 'pending' | 'in-review';
+type ModalTab = 'overview' | 'contract-logic' | 'history';
+
+interface InstitutionalAsset {
+    id: number;
+    name: string;
+    sector: Exclude<Sector, 'All'>;
+    valuation: number;
+    maxLoan: number;
+    riskRating: RiskRating;
+    riskScore: number;
+    apy: number;
+    depreciation: number;
+    stylusGasCost: number;
+    solidityGasCost: number;
+    condition: string;
+    year: number;
+    image: string;
+    status: 'available' | 'collateralized' | 'pending';
+    auditStatus: AuditStatus;
+    ltvRatio: number;
+    maturity: string;
+    issuer: string;
+}
+
+//  INSTITUTIONAL ASSETS 
+const INSTITUTIONAL_ASSETS: InstitutionalAsset[] = [
+    { id: 1,  name: 'John Deere 8R 410 Tractor',          sector: 'Agro',      valuation: 385000,  maxLoan: 231000,  riskRating: 'AA+', riskScore: 18, apy: 6.8,  depreciation: 7.5,  stylusGasCost: 0.04, solidityGasCost: 48.20, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1592982537447-6f2a6a0c7c18?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '24 mo', issuer: 'AgriDAO LatAm' },
+    { id: 2,  name: 'Netafim Smart Irrigation System',     sector: 'Agro',      valuation: 175000,  maxLoan: 105000,  riskRating: 'AAA', riskScore: 12, apy: 5.9,  depreciation: 4.2,  stylusGasCost: 0.03, solidityGasCost: 42.10, condition: 'New',       year: 2026, image: 'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '36 mo', issuer: 'AgriDAO LatAm' },
+    { id: 3,  name: 'Case IH 9250 Combine Harvester',     sector: 'Agro',      valuation: 520000,  maxLoan: 312000,  riskRating: 'AA',  riskScore: 22, apy: 7.4,  depreciation: 9.8,  stylusGasCost: 0.05, solidityGasCost: 51.30, condition: 'Good',      year: 2024, image: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=80', status: 'collateralized',  auditStatus: 'verified',  ltvRatio: 60, maturity: '18 mo', issuer: 'AgriDAO LatAm' },
+    { id: 4,  name: 'Nvidia H100 GPU Cluster (x8)',        sector: 'Tech',      valuation: 480000,  maxLoan: 264000,  riskRating: 'A+',  riskScore: 32, apy: 9.8,  depreciation: 18.5, stylusGasCost: 0.06, solidityGasCost: 55.80, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1558494949-ef526b0042a0?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'in-review', ltvRatio: 55, maturity: '12 mo', issuer: 'TechBridge Inc' },
+    { id: 5,  name: 'Dell PowerEdge R760 Rack',            sector: 'Tech',      valuation: 128000,  maxLoan: 70400,   riskRating: 'A',   riskScore: 28, apy: 8.2,  depreciation: 15.0, stylusGasCost: 0.04, solidityGasCost: 46.50, condition: 'Good',      year: 2024, image: 'https://images.unsplash.com/photo-1597852074816-d933c7d2b988?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 55, maturity: '12 mo', issuer: 'TechBridge Inc' },
+    { id: 6,  name: 'Ericsson 5G Antenna Array',           sector: 'Tech',      valuation: 290000,  maxLoan: 159500,  riskRating: 'AA',  riskScore: 24, apy: 7.5,  depreciation: 11.0, stylusGasCost: 0.04, solidityGasCost: 49.20, condition: 'New',       year: 2026, image: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=800&q=80', status: 'pending',         auditStatus: 'pending',   ltvRatio: 55, maturity: '24 mo', issuer: 'TelecomDAO' },
+    { id: 7,  name: 'SunPower Industrial Array (1.2MW)',   sector: 'Energy',    valuation: 680000,  maxLoan: 442000,  riskRating: 'AAA', riskScore: 10, apy: 5.5,  depreciation: 2.8,  stylusGasCost: 0.03, solidityGasCost: 44.80, condition: 'New',       year: 2026, image: 'https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 65, maturity: '60 mo', issuer: 'GreenVault DAO' },
+    { id: 8,  name: 'Siemens Gamesa SG 14-236 Turbine',   sector: 'Energy',    valuation: 1250000, maxLoan: 812500,  riskRating: 'AAA', riskScore: 8,  apy: 5.2,  depreciation: 3.0,  stylusGasCost: 0.05, solidityGasCost: 52.40, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1532601224476-15c79f2f7a51?auto=format&fit=crop&w=800&q=80', status: 'collateralized',  auditStatus: 'verified',  ltvRatio: 65, maturity: '60 mo', issuer: 'GreenVault DAO' },
+    { id: 9,  name: 'Caterpillar 330 GC Excavator',       sector: 'Heavy',     valuation: 410000,  maxLoan: 246000,  riskRating: 'AA',  riskScore: 24, apy: 7.6,  depreciation: 8.5,  stylusGasCost: 0.05, solidityGasCost: 50.10, condition: 'Good',      year: 2024, image: 'https://images.unsplash.com/photo-1578322742918-6c845423f46f?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '18 mo', issuer: 'InfraBuild DAO' },
+    { id: 10, name: 'Liebherr 280 EC-H Tower Crane',      sector: 'Heavy',     valuation: 920000,  maxLoan: 552000,  riskRating: 'A+',  riskScore: 30, apy: 8.4,  depreciation: 7.0,  stylusGasCost: 0.06, solidityGasCost: 54.90, condition: 'Good',      year: 2023, image: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'in-review', ltvRatio: 60, maturity: '24 mo', issuer: 'InfraBuild DAO' },
+    { id: 11, name: 'Volvo FH16 Fleet (x5 Units)',        sector: 'Logistics', valuation: 875000,  maxLoan: 525000,  riskRating: 'AA+', riskScore: 20, apy: 7.0,  depreciation: 12.0, stylusGasCost: 0.05, solidityGasCost: 53.60, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '24 mo', issuer: 'LogiChain DAO' },
+    { id: 12, name: 'Komatsu 930E Mining Truck',          sector: 'Heavy',     valuation: 1450000, maxLoan: 870000,  riskRating: 'A',   riskScore: 35, apy: 9.2,  depreciation: 10.5, stylusGasCost: 0.06, solidityGasCost: 56.30, condition: 'Fair',      year: 2022, image: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80', status: 'pending',         auditStatus: 'pending',   ltvRatio: 60, maturity: '18 mo', issuer: 'MineDAO' },
+    { id: 13, name: 'Siemens MRI Magnetom Vida',          sector: 'Retail',    valuation: 1850000, maxLoan: 1110000, riskRating: 'AAA', riskScore: 9,  apy: 5.0,  depreciation: 7.5,  stylusGasCost: 0.04, solidityGasCost: 47.80, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=800&q=80', status: 'collateralized',  auditStatus: 'verified',  ltvRatio: 60, maturity: '48 mo', issuer: 'MedChain DAO' },
+    { id: 14, name: 'BYD Electric Delivery Fleet (x12)',   sector: 'Logistics', valuation: 540000,  maxLoan: 324000,  riskRating: 'AA',  riskScore: 22, apy: 7.1,  depreciation: 13.0, stylusGasCost: 0.04, solidityGasCost: 48.90, condition: 'New',       year: 2026, image: 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '24 mo', issuer: 'LogiChain DAO' },
+    { id: 15, name: 'Maersk Reefer Container (Tokenized)', sector: 'Logistics', valuation: 92000,   maxLoan: 55200,   riskRating: 'A+',  riskScore: 26, apy: 7.8,  depreciation: 5.5,  stylusGasCost: 0.03, solidityGasCost: 43.20, condition: 'Good',      year: 2024, image: 'https://images.unsplash.com/photo-1494412574643-ff11b0a5eb19?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '12 mo', issuer: 'LogiChain DAO' },
+];
+
+const SECTORS: Sector[] = ['All', 'Agro', 'Tech', 'Energy', 'Heavy', 'Retail', 'Logistics'];
+
+const SECTOR_ICONS: Record<string, React.ReactNode> = {
+    Agro: <Wheat size={14} />, Tech: <Cpu size={14} />, Energy: <Zap size={14} />,
+    Heavy: <HardHat size={14} />, Retail: <ShoppingBag size={14} />, Logistics: <Container size={14} />,
+};
+
+const SECTOR_COLORS: Record<string, string> = {
+    Agro: '#22C55E', Tech: '#3B82F6', Energy: '#F59E0B', Heavy: '#EF4444', Retail: '#A855F7', Logistics: '#06B6D4',
+};
+
+const RATING_COLORS: Record<string, string> = {
+    'AAA': '#22C55E', 'AA+': '#34D399', 'AA': '#4ADE80', 'A+': '#3B82F6', 'A': '#60A5FA', 'BBB': '#F59E0B', 'BB+': '#FB923C', 'B+': '#EF4444',
+};
+
+//  UTILITY HELPERS 
+function fmt(n: number): string {
+    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+    if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
+    return `$${n.toFixed(2)}`;
+}
+
+function fmtFull(n: number): string {
+    return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+}
+
+function riskColor(score: number): string {
+    if (score <= 15) return '#22C55E';
+    if (score <= 25) return '#4ADE80';
+    if (score <= 32) return '#F59E0B';
+    return '#EF4444';
+}
+
+function auditBadge(status: AuditStatus) {
+    const m = {
+        verified:    { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', text: 'text-emerald-400', icon: <CheckCircle2 size={10} />, label: 'Verified' },
+        pending:     { bg: 'bg-amber-500/10',   border: 'border-amber-500/20',   text: 'text-amber-400',   icon: <Clock size={10} />,        label: 'Pending' },
+        'in-review': { bg: 'bg-blue-500/10',    border: 'border-blue-500/20',    text: 'text-blue-400',    icon: <FileCode2 size={10} />,    label: 'In Review' },
+    };
+    const s = m[status];
+    return (
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider border ${s.bg} ${s.border} ${s.text}`}>
+            {s.icon} {s.label}
+        </span>
+    );
+}
+
+function statusDot(status: InstitutionalAsset['status']) {
+    const m = {
+        available: { color: 'bg-emerald-400', label: 'Available' },
+        collateralized: { color: 'bg-blue-400', label: 'Active Loan' },
+        pending: { color: 'bg-amber-400', label: 'Under Review' },
+    };
+    const s = m[status];
+    return (
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
+            <span className={`w-1.5 h-1.5 rounded-full ${s.color}`} />{s.label}
+        </span>
+    );
+}
+
+function generateStylusFeed(): { time: string; msg: string; type: 'ok' | 'info' | 'warn' }[] {
+    const now = new Date();
+    return INSTITUTIONAL_ASSETS.slice(0, 10).map((a, i) => {
+        const t = new Date(now.getTime() - i * 3800);
+        const ts = `${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
+        const msgs = [
+            { msg: `stylus::engine - Asset #${a.id.toString().padStart(2,'0')} (${a.riskRating}) depreciation curve computed -> ${a.depreciation}%/yr [${(Math.random()*0.03+0.01).toFixed(3)}s]`, type: 'ok' as const },
+            { msg: `stylus::risk - Collateral ratio for "${a.name.split(' ').slice(0,3).join(' ')}" -> LTV ${a.ltvRatio}% | Gas saved: $${(a.solidityGasCost - a.stylusGasCost).toFixed(2)}`, type: 'info' as const },
+            { msg: `wasm::valuation - Rating ${a.riskRating} confirmed | Score: ${a.riskScore}/100 | Audit: ${a.auditStatus}`, type: a.riskScore > 30 ? 'warn' as const : 'info' as const },
+        ];
+        return { time: ts, ...msgs[i % 3] };
+    });
+}
+
+//  DASHBOARD OVERVIEW 
+function DashboardOverview({ onGoToMarket }: { onGoToMarket: () => void }) {
+    const totalVal = INSTITUTIONAL_ASSETS.reduce((s, a) => s + a.valuation, 0);
+    const totalLoaned = INSTITUTIONAL_ASSETS.filter(a => a.status === 'collateralized').reduce((s, a) => s + a.maxLoan, 0);
+    const avgApy = (INSTITUTIONAL_ASSETS.reduce((s, a) => s + a.apy, 0) / INSTITUTIONAL_ASSETS.length).toFixed(1);
+    const totalGasSaved = INSTITUTIONAL_ASSETS.reduce((s, a) => s + (a.solidityGasCost - a.stylusGasCost), 0);
+    const verifiedCount = INSTITUTIONAL_ASSETS.filter(a => a.auditStatus === 'verified').length;
+
+    const topAssets = [...INSTITUTIONAL_ASSETS].sort((a, b) => b.valuation - a.valuation).slice(0, 5);
+
+    return (
+        <div className="space-y-6">
+            {/* KPI Grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                    { label: 'Total Value Locked', value: fmt(totalVal), sub: `${INSTITUTIONAL_ASSETS.length} assets`, icon: <Layers size={18} />, color: 'text-emerald-400', iconBg: 'bg-emerald-500/10' },
+                    { label: 'Active Loans', value: fmt(totalLoaned), sub: `${INSTITUTIONAL_ASSETS.filter(a => a.status === 'collateralized').length} positions`, icon: <Banknote size={18} />, color: 'text-blue-400', iconBg: 'bg-blue-500/10' },
+                    { label: 'Gas Saved (Stylus)', value: `$${totalGasSaved.toFixed(0)}`, sub: 'vs Solidity baseline', icon: <Fuel size={18} />, color: 'text-amber-400', iconBg: 'bg-amber-500/10' },
+                    { label: 'Avg Protocol APY', value: `${avgApy}%`, sub: `${verifiedCount}/${INSTITUTIONAL_ASSETS.length} audited`, icon: <TrendingUp size={18} />, color: 'text-purple-400', iconBg: 'bg-purple-500/10' },
+                ].map((kpi, i) => (
+                    <div key={i} className="bg-slate-900/40 rounded-xl border border-slate-800/50 p-4 hover:border-slate-700/60 transition-all group">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className={`w-9 h-9 rounded-lg ${kpi.iconBg} flex items-center justify-center ${kpi.color}`}>{kpi.icon}</div>
+                            <ArrowUpRight size={14} className="text-slate-700 group-hover:text-slate-500 transition-colors" />
+                        </div>
+                        <p className={`text-2xl font-bold font-mono ${kpi.color}`}>{kpi.value}</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">{kpi.label}</p>
+                        <p className="text-[10px] text-slate-600 font-mono mt-1">{kpi.sub}</p>
+                    </div>
+                ))}
+            </div>
+
+            <div className="grid lg:grid-cols-5 gap-6">
+                {/* Top Assets */}
+                <div className="lg:col-span-3 bg-slate-900/40 rounded-xl border border-slate-800/50 overflow-hidden">
+                    <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800/40">
+                        <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                            <TrendingUp size={15} className="text-emerald-400" /> Top Assets by Valuation
+                        </h3>
+                        <button onClick={onGoToMarket} className="text-[11px] font-mono text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors">
+                            View All <ChevronRight size={12} />
+                        </button>
+                    </div>
+                    <div className="divide-y divide-slate-800/30">
+                        {topAssets.map((a, i) => (
+                            <div key={a.id} className="flex items-center gap-4 px-5 py-3 hover:bg-slate-800/20 transition-colors">
+                                <span className="text-xs font-mono text-slate-600 w-5">{i + 1}</span>
+                                <img src={a.image} alt="" className="w-10 h-10 rounded-lg object-cover border border-slate-800/40" />
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-slate-200 font-medium truncate">{a.name}</p>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="text-[10px] font-mono" style={{ color: SECTOR_COLORS[a.sector] }}>{a.sector}</span>
+                                        <span className="text-slate-800">.</span>
+                                        {statusDot(a.status)}
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm font-bold font-mono text-white">{fmtFull(a.valuation)}</p>
+                                    <span className="text-[10px] font-mono font-bold" style={{ color: RATING_COLORS[a.riskRating] }}>{a.riskRating}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Protocol Health */}
+                <div className="lg:col-span-2 space-y-4">
+                    <div className="bg-slate-900/40 rounded-xl border border-slate-800/50 p-5">
+                        <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2 mb-4">
+                            <Shield size={15} className="text-blue-400" /> Protocol Health
+                        </h3>
+                        <div className="text-center mb-4">
+                            <p className="text-4xl font-black font-mono text-white">
+                                {totalVal > 0 ? Math.round(((totalVal - totalLoaned) / totalVal) * 100) : 100}%
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-1">Over-collateralization Ratio</p>
+                        </div>
+                        <div className="h-2.5 rounded-full bg-slate-800 overflow-hidden flex">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: '70%' }} />
+                            <div className="h-full bg-amber-500" style={{ width: '20%' }} />
+                            <div className="h-full bg-red-500" style={{ width: '10%' }} />
+                        </div>
+                        <div className="flex justify-between mt-2 text-[9px] font-mono text-slate-600">
+                            <span>Healthy</span><span>Watch</span><span>Risk</span>
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-900/40 rounded-xl border border-slate-800/50 p-5">
+                        <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2 mb-3">
+                            <Fuel size={15} className="text-amber-400" /> Stylus Gas Impact
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="text-center p-3 rounded-lg bg-red-500/5 border border-red-500/10">
+                                <p className="text-[10px] font-mono text-slate-500 mb-1">Solidity Avg</p>
+                                <p className="text-lg font-bold font-mono text-red-400">$49.60</p>
+                                <p className="text-[9px] text-slate-600">per tx</p>
+                            </div>
+                            <div className="text-center p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                                <p className="text-[10px] font-mono text-slate-500 mb-1">Stylus (Rust)</p>
+                                <p className="text-lg font-bold font-mono text-emerald-400">$0.04</p>
+                                <p className="text-[9px] text-slate-600">per tx</p>
+                            </div>
+                        </div>
+                        <div className="mt-3 text-center">
+                            <span className="text-[11px] font-mono text-emerald-400">99.9% cost reduction</span>
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-900/40 rounded-xl border border-slate-800/50 p-5">
+                        <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2 mb-3">
+                            <Lock size={15} className="text-emerald-400" /> Audit Pipeline
+                        </h3>
+                        {[
+                            { label: 'Verified', count: INSTITUTIONAL_ASSETS.filter(a => a.auditStatus === 'verified').length, color: 'bg-emerald-400' },
+                            { label: 'In Review', count: INSTITUTIONAL_ASSETS.filter(a => a.auditStatus === 'in-review').length, color: 'bg-blue-400' },
+                            { label: 'Pending', count: INSTITUTIONAL_ASSETS.filter(a => a.auditStatus === 'pending').length, color: 'bg-amber-400' },
+                        ].map((row, i) => (
+                            <div key={i} className="flex items-center justify-between py-1.5">
+                                <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full ${row.color}`} />
+                                    <span className="text-xs text-slate-400">{row.label}</span>
+                                </div>
+                                <span className="text-xs font-mono font-bold text-slate-300">{row.count}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+//  MARKET SECTION 
+function MarketSection({ onSelect }: { onSelect: (a: InstitutionalAsset) => void }) {
+    const [search, setSearch] = useState('');
+    const [sector, setSector] = useState<Sector>('All');
+
+    const filtered = useMemo(() =>
+        INSTITUTIONAL_ASSETS.filter(a => {
+            const matchSearch = a.name.toLowerCase().includes(search.toLowerCase()) || a.issuer.toLowerCase().includes(search.toLowerCase());
+            const matchSector = sector === 'All' || a.sector === sector;
+            return matchSearch && matchSector;
+        }),
+    [search, sector]);
+
+    return (
+        <div className="space-y-5">
+            <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        placeholder="Search by asset name or issuer..."
+                        className="w-full bg-slate-900/50 border border-slate-800/60 rounded-xl pl-9 pr-9 py-2.5 text-sm text-slate-300 placeholder-slate-600 outline-none focus:border-blue-500/40 transition-all font-mono"
+                    />
+                    {search && (
+                        <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                            <X size={14} />
+                        </button>
+                    )}
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                    {SECTORS.map(s => (
+                        <button
+                            key={s}
+                            onClick={() => setSector(s)}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all border ${
+                                sector === s
+                                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                    : 'bg-slate-900/30 border-slate-800/40 text-slate-500 hover:text-slate-300 hover:border-slate-700/60'
+                            }`}
+                        >
+                            {s !== 'All' && SECTOR_ICONS[s]}{s}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <p className="text-[11px] font-mono text-slate-600">
+                Showing <span className="text-slate-400">{filtered.length}</span> of {INSTITUTIONAL_ASSETS.length} institutional assets
+            </p>
+
+            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filtered.map(asset => (
+                    <button
+                        key={asset.id}
+                        onClick={() => onSelect(asset)}
+                        className="group text-left bg-slate-900/40 rounded-xl border border-slate-800/50 overflow-hidden hover:border-slate-700/50 hover:shadow-[0_0_40px_rgba(0,0,0,0.3)] transition-all"
+                    >
+                        <div className="relative h-36 overflow-hidden bg-slate-800">
+                            <img src={asset.image} alt={asset.name} className="w-full h-full object-cover opacity-75 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500" loading="lazy" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-transparent to-transparent" />
+                            <div className="absolute top-2 left-2">{auditBadge(asset.auditStatus)}</div>
+                            <div className="absolute top-2 right-2">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-black/60" style={{ color: RATING_COLORS[asset.riskRating] }}>
+                                    {asset.riskRating}
+                                </span>
+                            </div>
+                            <div className="absolute bottom-2 left-2 flex items-center gap-1.5 text-[10px] font-mono text-slate-300 bg-black/50 rounded px-1.5 py-0.5">
+                                <span style={{ color: SECTOR_COLORS[asset.sector] }}>{SECTOR_ICONS[asset.sector]}</span>
+                                {asset.sector}
+                            </div>
+                            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[10px] font-mono text-slate-400">
+                                #{asset.id.toString().padStart(3, '0')}
+                            </div>
+                        </div>
+                        <div className="p-4">
+                            <h3 className="text-sm font-semibold text-slate-200 mb-0.5 group-hover:text-white transition-colors truncate">{asset.name}</h3>
+                            <p className="text-[10px] text-slate-500 font-mono mb-3">{asset.issuer} - {asset.maturity}</p>
+                            <div className="flex items-end justify-between mb-3">
+                                <div>
+                                    <p className="text-[9px] text-slate-600 uppercase tracking-wider">Valuation</p>
+                                    <p className="text-lg font-bold font-mono text-white">{fmtFull(asset.valuation)}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[9px] text-slate-600 uppercase tracking-wider">Max Loan</p>
+                                    <p className="text-sm font-bold font-mono text-blue-400">{fmtFull(asset.maxLoan)}</p>
+                                </div>
+                            </div>
+                            <div className="h-1 rounded-full bg-slate-800 overflow-hidden mb-3">
+                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${100 - asset.riskScore}%`, background: riskColor(asset.riskScore) }} />
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
+                                <span>APY <span className="text-emerald-400">{asset.apy}%</span></span>
+                                <span>Gas: <span className="text-emerald-400">${asset.stylusGasCost}</span></span>
+                                <span className="flex items-center gap-1 text-slate-400 group-hover:text-blue-400 transition-colors">
+                                    Details <ChevronRight size={10} />
+                                </span>
+                            </div>
+                        </div>
+                    </button>
+                ))}
+            </div>
+
+            {filtered.length === 0 && (
+                <div className="text-center py-16">
+                    <Search size={32} className="mx-auto text-slate-700 mb-3" />
+                    <p className="text-slate-500 text-sm">No assets match your search.</p>
+                </div>
+            )}
+        </div>
+    );
+}
+
+//  ASSET DETAIL MODAL 
+function AssetModal({
+    asset, onClose, onBorrow, borrowStep, isBusy, txHash, txError,
+}: {
+    asset: InstitutionalAsset; onClose: () => void; onBorrow: (a: InstitutionalAsset) => void;
+    borrowStep: number; isBusy: boolean; txHash?: string; txError?: string;
+}) {
+    const [tab, setTab] = useState<ModalTab>('overview');
+    const gasSaved = (asset.solidityGasCost - asset.stylusGasCost).toFixed(2);
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative w-full max-w-2xl bg-[#0A101F] border border-slate-800/60 rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col" style={{ animation: 'fadeInUp 0.3s ease-out' }}>
+                {/* Header */}
+                <div className="relative h-40 overflow-hidden flex-shrink-0">
+                    <img src={asset.image} alt={asset.name} className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0A101F] via-[#0A101F]/50 to-transparent" />
+                    <button onClick={onClose} className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/50 text-slate-300 hover:text-white transition-colors">
+                        <X size={18} />
+                    </button>
+                    <div className="absolute bottom-3 left-4 right-4">
+                        <div className="flex items-center gap-2 mb-1">
+                            {auditBadge(asset.auditStatus)}
+                            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-black/50" style={{ color: RATING_COLORS[asset.riskRating] }}>
+                                {asset.riskRating}
+                            </span>
+                            {statusDot(asset.status)}
+                        </div>
+                        <h2 className="text-lg font-bold text-white">{asset.name}</h2>
+                        <p className="text-[11px] text-slate-400 font-mono">{asset.issuer} - {asset.sector} - {asset.maturity} maturity</p>
+                    </div>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex border-b border-slate-800/40 px-4 flex-shrink-0">
+                    {([['overview', 'Overview'], ['contract-logic', 'Contract Logic'], ['history', 'Tx History']] as [ModalTab, string][]).map(([id, label]) => {
+                        const tabIcon = id === 'contract-logic' ? <ScrollText size={12} className="mr-1" /> : id === 'history' ? <Activity size={12} className="mr-1" /> : null;
+                        return (
+                        <button
+                            key={id}
+                            onClick={() => setTab(id)}
+                            className={`flex items-center px-4 py-2.5 text-xs font-medium transition-colors border-b-2 ${
+                                tab === id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'
+                            }`}
+                        >
+                            {tabIcon}{label}
+                        </button>
+                    );
+                    })}
+                </div>
+
+                {/* Tab Content */}
+                <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                    {tab === 'overview' && (
+                        <>
+                            <div className="grid grid-cols-3 gap-3">
+                                {[
+                                    { label: 'Valuation', value: fmtFull(asset.valuation), color: 'text-white' },
+                                    { label: 'Max Loan', value: fmtFull(asset.maxLoan), color: 'text-blue-400' },
+                                    { label: 'LTV Ratio', value: `${asset.ltvRatio}%`, color: 'text-emerald-400' },
+                                ].map((s, i) => (
+                                    <div key={i} className="bg-slate-900/50 rounded-lg p-3 border border-slate-800/40">
+                                        <p className="text-[10px] font-mono uppercase text-slate-500 mb-1">{s.label}</p>
+                                        <p className={`text-base font-bold font-mono ${s.color}`}>{s.value}</p>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="grid grid-cols-4 gap-2 text-center">
+                                {[
+                                    { label: 'Risk', value: `${asset.riskScore}/100`, color: riskColor(asset.riskScore) },
+                                    { label: 'APY', value: `${asset.apy}%`, color: '#22C55E' },
+                                    { label: 'Depr.', value: `${asset.depreciation}%/yr`, color: '#F59E0B' },
+                                    { label: 'Year', value: asset.year.toString(), color: '#94A3B8' },
+                                ].map((d, i) => (
+                                    <div key={i} className="py-2">
+                                        <p className="text-[9px] font-mono uppercase text-slate-600">{d.label}</p>
+                                        <p className="text-sm font-bold font-mono" style={{ color: d.color }}>{d.value}</p>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-500/5 border border-blue-500/10">
+                                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                                    <Zap size={16} className="text-blue-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-blue-300">Stylus WASM Engine</p>
+                                    <p className="text-[10px] text-blue-400/60 font-mono">Gas saved: <span className="text-emerald-400 font-bold">${gasSaved}</span> per valuation tx</p>
+                                </div>
+                                <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />Live
+                                </span>
+                            </div>
+                        </>
+                    )}
+
+                    {tab === 'contract-logic' && (
+                        <>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="rounded-xl bg-red-500/5 border border-red-500/10 p-4">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <XCircle size={14} className="text-red-400" />
+                                        <span className="text-xs font-bold text-red-400">Legacy Solidity</span>
+                                    </div>
+                                    <div className="font-mono text-[11px] text-slate-400 space-y-1.5 bg-slate-900/50 rounded-lg p-3 border border-slate-800/30">
+                                        <p><span className="text-slate-600">// EVM - Expensive loops</span></p>
+                                        <p><span className="text-purple-400">function</span> <span className="text-yellow-300">calcValue</span>() {'{'}</p>
+                                        <p>  <span className="text-purple-400">uint</span> dep = age * rate;</p>
+                                        <p>  <span className="text-slate-600">// No complex math</span></p>
+                                        <p>  <span className="text-purple-400">return</span> value - dep;</p>
+                                        <p>{'}'}</p>
+                                    </div>
+                                    <div className="mt-3 text-center">
+                                        <p className="text-xl font-bold font-mono text-red-400">${asset.solidityGasCost.toFixed(2)}</p>
+                                        <p className="text-[10px] text-slate-500">gas per tx</p>
+                                    </div>
+                                </div>
+                                <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/10 p-4">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <CheckCircle2 size={14} className="text-emerald-400" />
+                                        <span className="text-xs font-bold text-emerald-400">Stylus (Rust/WASM)</span>
+                                    </div>
+                                    <div className="font-mono text-[11px] text-slate-400 space-y-1.5 bg-slate-900/50 rounded-lg p-3 border border-slate-800/30">
+                                        <p><span className="text-slate-600">// WASM - Full math</span></p>
+                                        <p><span className="text-purple-400">fn</span> <span className="text-yellow-300">calc_risk</span>(&self) {'{'}</p>
+                                        <p>  <span className="text-purple-400">let</span> curve = self.<span className="text-cyan-300">depreciation</span>();</p>
+                                        <p>  <span className="text-purple-400">let</span> score = self.<span className="text-cyan-300">risk_model</span>();</p>
+                                        <p>  Ok(val - curve + score)</p>
+                                        <p>{'}'}</p>
+                                    </div>
+                                    <div className="mt-3 text-center">
+                                        <p className="text-xl font-bold font-mono text-emerald-400">${asset.stylusGasCost.toFixed(2)}</p>
+                                        <p className="text-[10px] text-slate-500">gas per tx</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-500/5 to-blue-500/5 border border-emerald-500/10 text-center">
+                                <p className="text-[11px] text-slate-400 mb-1">Gas Saved via Stylus on this Asset</p>
+                                <p className="text-3xl font-black font-mono text-emerald-400">${gasSaved}</p>
+                                <p className="text-[10px] text-slate-500 font-mono mt-1">
+                                    {((1 - asset.stylusGasCost / asset.solidityGasCost) * 100).toFixed(1)}% reduction - Per valuation tx - Arbitrum Sepolia
+                                </p>
+                            </div>
+
+                            <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/50 border border-slate-800/40">
+                                <Lock size={16} className="text-slate-400 flex-shrink-0" />
+                                <div className="flex-1 text-xs text-slate-400">
+                                    This contract valuation logic is deterministic and verifiable, a requirement for the <span className="text-blue-400">Arbitrum Audit Program</span>.
+                                </div>
+                                {auditBadge(asset.auditStatus)}
+                            </div>
+                        </>
+                    )}
+
+                    {tab === 'history' && (
+                        <div className="space-y-2 font-mono text-xs">
+                            {[
+                                { time: '14:22:08', action: `Valuation computed -> ${fmtFull(asset.valuation)}`, type: 'ok' },
+                                { time: '14:22:07', action: `Risk model executed -> Score: ${asset.riskScore}/100 (${asset.riskRating})`, type: 'ok' },
+                                { time: '14:22:06', action: `Depreciation curve: ${asset.depreciation}%/yr applied`, type: 'info' },
+                                { time: '14:22:05', action: `LTV set -> ${asset.ltvRatio}% | Max loan: ${fmtFull(asset.maxLoan)}`, type: 'info' },
+                                { time: '14:22:04', action: `WASM gas metered: $${asset.stylusGasCost} (saved $${gasSaved} vs Solidity)`, type: 'ok' },
+                                { time: '14:22:03', action: 'Oracle price feed integrated (Chainlink)', type: 'info' },
+                                { time: '14:22:02', action: `NFT metadata verified for Asset #${asset.id.toString().padStart(3, '0')}`, type: 'ok' },
+                            ].map((log, i) => (
+                                <div key={i} className="flex gap-3 py-1.5 border-b border-slate-800/20">
+                                    <span className="text-slate-600 flex-shrink-0">{log.time}</span>
+                                    <span className={log.type === 'ok' ? 'text-emerald-400/80' : 'text-slate-400/80'}>{log.action}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Action Footer */}
+                <div className="p-4 border-t border-slate-800/40 flex-shrink-0">
+                    <button
+                        onClick={() => onBorrow(asset)}
+                        disabled={isBusy || borrowStep === 4 || asset.status !== 'available'}
+                        className={`w-full py-3 rounded-xl font-bold text-sm transition-all ${
+                            asset.status !== 'available'
+                                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                                : borrowStep === 4
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : isBusy
+                                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20 cursor-wait'
+                                        : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                        }`}
+                    >
+                        {asset.status !== 'available'
+                            ? `${asset.status === 'collateralized' ? 'Already Collateralized' : 'Pending Review'}`
+                            : borrowStep === 0 ? `Request Loan - ${fmtFull(asset.maxLoan)} via Stylus`
+                            : borrowStep === 1 ? 'Approving NFT...'
+                            : borrowStep === 2 ? 'Confirm Borrow Execution'
+                            : borrowStep === 3 ? 'Computing Risk (Stylus/Rust)...'
+                            : 'Loan Disbursed Successfully'}
+                    </button>
+                    {txError && <p className="mt-2 text-[11px] font-mono text-red-400 text-center">{txError.slice(0, 120)}</p>}
+                    {txHash && (
+                        <a href={`https://sepolia.arbiscan.io/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-1 mt-2 text-[11px] font-mono text-blue-400 hover:text-blue-300 transition-colors">
+                            View on Arbiscan <ExternalLink size={10} />
+                        </a>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+//  RISK ENGINE SECTION 
+function RiskEngineSection() {
+    const [feedLogs] = useState(generateStylusFeed);
+    const totalVal = INSTITUTIONAL_ASSETS.reduce((s, a) => s + a.valuation, 0);
+    const catBreakdown = SECTORS.filter(c => c !== 'All').map(cat => {
+        const items = INSTITUTIONAL_ASSETS.filter(a => a.sector === cat);
+        const val = items.reduce((s, a) => s + a.valuation, 0);
+        return { sector: cat, value: val, count: items.length, pct: totalVal > 0 ? (val / totalVal) * 100 : 0 };
+    }).sort((a, b) => b.value - a.value);
+    const maxVal = Math.max(...catBreakdown.map(c => c.value));
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-lg font-bold text-white">Risk Engine</h2>
+                    <p className="text-xs text-slate-500 font-mono">Stylus WASM v1.0 - Real-time collateral analytics</p>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                    <Activity size={13} className="text-emerald-400" />
+                    <span className="text-[11px] font-mono text-emerald-400">Streaming</span>
+                </div>
+            </div>
+
+            <div className="bg-slate-900/40 rounded-xl border border-slate-800/50 p-5">
+                <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2 mb-4">
+                    <BarChart3 size={15} className="text-purple-400" /> Collateral Distribution by Sector
+                </h3>
+                <div className="space-y-3">
+                    {catBreakdown.map(cat => (
+                        <div key={cat.sector}>
+                            <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                    <span style={{ color: SECTOR_COLORS[cat.sector] }}>{SECTOR_ICONS[cat.sector]}</span>
+                                    <span className="text-xs text-slate-300">{cat.sector}</span>
+                                    <span className="text-[10px] font-mono text-slate-600">({cat.count})</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-xs font-bold font-mono text-white">{fmtFull(cat.value)}</span>
+                                    <span className="text-[10px] font-mono text-slate-500 w-12 text-right">{cat.pct.toFixed(1)}%</span>
+                                </div>
+                            </div>
+                            <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${maxVal > 0 ? (cat.value / maxVal) * 100 : 0}%`, background: SECTOR_COLORS[cat.sector], opacity: 0.7 }} />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="bg-slate-900/40 rounded-xl border border-slate-800/50 overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-800/40">
+                    <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                        <AlertTriangle size={15} className="text-amber-400" /> Per-Asset Risk Matrix
+                    </h3>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead>
+                            <tr className="text-[10px] font-mono uppercase text-slate-600 border-b border-slate-800/40">
+                                <th className="py-2.5 px-4">ID</th><th className="py-2.5 pr-3">Asset</th><th className="py-2.5 pr-3">Rating</th>
+                                <th className="py-2.5 pr-3 text-right">Value</th><th className="py-2.5 pr-3 text-right">Score</th>
+                                <th className="py-2.5 pr-3 text-right">Gas Saved</th><th className="py-2.5 pr-4 text-right">Audit</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {INSTITUTIONAL_ASSETS.map(a => (
+                                <tr key={a.id} className="border-b border-slate-800/20 hover:bg-slate-800/20 transition-colors">
+                                    <td className="py-2.5 px-4 text-xs font-mono text-slate-500">#{a.id.toString().padStart(3, '0')}</td>
+                                    <td className="py-2.5 pr-3 text-xs text-slate-300 max-w-[200px] truncate">{a.name}</td>
+                                    <td className="py-2.5 pr-3 text-xs font-mono font-bold" style={{ color: RATING_COLORS[a.riskRating] }}>{a.riskRating}</td>
+                                    <td className="py-2.5 pr-3 text-xs font-mono text-white text-right">{fmt(a.valuation)}</td>
+                                    <td className="py-2.5 pr-3 text-right"><span className="text-xs font-bold font-mono" style={{ color: riskColor(a.riskScore) }}>{a.riskScore}</span></td>
+                                    <td className="py-2.5 pr-3 text-xs font-mono text-emerald-400 text-right">${(a.solidityGasCost - a.stylusGasCost).toFixed(2)}</td>
+                                    <td className="py-2.5 pr-4 text-right">{auditBadge(a.auditStatus)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div className="bg-slate-900/40 rounded-xl border border-slate-800/50 overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800/40">
+                    <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                        <Terminal size={15} className="text-emerald-400" /> Stylus Live Feed
+                    </h3>
+                    <span className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />Streaming
+                    </span>
+                </div>
+                <div className="max-h-56 overflow-y-auto p-4 font-mono text-[11px] space-y-1.5">
+                    {feedLogs.map((log, i) => (
+                        <div key={i} className="flex gap-3">
+                            <span className="text-slate-600 flex-shrink-0">{log.time}</span>
+                            <span className={log.type === 'ok' ? 'text-emerald-400/80' : log.type === 'warn' ? 'text-amber-400/80' : 'text-slate-400/80'}>
+                                {log.msg}
+                            </span>
+                        </div>
+                    ))}
+                    <div className="flex gap-3 text-slate-600 animate-pulse"><span>--:--:--</span><span>Awaiting next block...</span></div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+//  GOVERNANCE SECTION 
+function GovernanceSection() {
+    const proposals = [
+        { id: 'CXP-001', title: 'Increase LTV cap for Energy sector to 70%', status: 'Active', votes: { for: 842, against: 156 }, date: 'Feb 10, 2026' },
+        { id: 'CXP-002', title: 'Onboard Lithium Mining assets to protocol', status: 'Active', votes: { for: 621, against: 289 }, date: 'Feb 08, 2026' },
+        { id: 'CXP-003', title: 'Deploy Stylus v2 with multi-curve depreciation', status: 'Passed', votes: { for: 1204, against: 87 }, date: 'Feb 01, 2026' },
+        { id: 'CXP-004', title: 'Apply for Arbitrum DAO Grant Phase 2', status: 'Passed', votes: { for: 1580, against: 42 }, date: 'Jan 25, 2026' },
+        { id: 'CXP-005', title: 'Integrate Chainlink CCIP for cross-chain collateral', status: 'Discussion', votes: { for: 0, against: 0 }, date: 'Feb 13, 2026' },
+    ];
+
+    return (
+        <div className="space-y-6">
+            <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Landmark size={20} className="text-purple-400" /> Governance
+                </h2>
+                <p className="text-xs text-slate-500 font-mono">CX DAO - On-chain proposals and protocol direction</p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+                {[
+                    { label: 'Active Proposals', value: proposals.filter(p => p.status === 'Active').length.toString(), color: 'text-blue-400' },
+                    { label: 'Total Voters', value: '2,467', color: 'text-purple-400' },
+                    { label: 'Treasury', value: '$1.2M', color: 'text-emerald-400' },
+                ].map((s, i) => (
+                    <div key={i} className="bg-slate-900/40 rounded-xl border border-slate-800/50 p-4 text-center">
+                        <p className={`text-2xl font-bold font-mono ${s.color}`}>{s.value}</p>
+                        <p className="text-[10px] text-slate-500 mt-1">{s.label}</p>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-3">
+                {proposals.map(p => {
+                    const total = p.votes.for + p.votes.against;
+                    const forPct = total > 0 ? (p.votes.for / total) * 100 : 50;
+                    return (
+                        <div key={p.id} className="bg-slate-900/40 rounded-xl border border-slate-800/50 p-4 hover:border-slate-700/60 transition-colors">
+                            <div className="flex items-start justify-between gap-3 mb-3">
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-[10px] font-mono text-slate-500">{p.id}</span>
+                                        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full border ${
+                                            p.status === 'Active' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                                            : p.status === 'Passed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                            : 'bg-slate-800 border-slate-700 text-slate-400'
+                                        }`}>{p.status}</span>
+                                    </div>
+                                    <p className="text-sm text-slate-200 font-medium">{p.title}</p>
+                                    <p className="text-[10px] text-slate-500 font-mono mt-1">{p.date}</p>
+                                </div>
+                            </div>
+                            {total > 0 && (
+                                <div>
+                                    <div className="h-2 rounded-full bg-slate-800 overflow-hidden flex">
+                                        <div className="h-full bg-emerald-500 rounded-l-full" style={{ width: `${forPct}%` }} />
+                                        <div className="h-full bg-red-500 rounded-r-full" style={{ width: `${100 - forPct}%` }} />
+                                    </div>
+                                    <div className="flex justify-between mt-1.5 text-[10px] font-mono">
+                                        <span className="text-emerald-400">For: {p.votes.for} ({forPct.toFixed(0)}%)</span>
+                                        <span className="text-red-400">Against: {p.votes.against}</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+//  SETTINGS SECTION (with Faucet) 
+function SettingsSection() {
+    const { address } = useAccount();
+    const [testnet, setTestnet] = useState(true);
+    const [debugLogs, setDebugLogs] = useState(false);
+    const [currency, setCurrency] = useState<'USDC' | 'ETH'>('USDC');
+    const [cleared, setCleared] = useState(false);
+
+    const { data: faucetHash, writeContract: writeFaucet, isPending: faucetPending } = useWriteContract();
+    const { isLoading: faucetLoading, isSuccess: faucetSuccess } = useWaitForTransactionReceipt({ hash: faucetHash });
+
+    const handleMint = useCallback(() => {
+        if (!address) return;
+        writeFaucet({
+            address: MOCK_USDC_ADDRESS,
+            abi: MOCK_USDC_ABI,
+            functionName: 'mint',
+            args: [address, BigInt(100_000) * BigInt(10 ** 6)],
+        });
+    }, [address, writeFaucet]);
+
+    const isFaucetBusy = faucetPending || faucetLoading;
+
+    const Toggle = ({ on, onToggle, label, desc }: { on: boolean; onToggle: () => void; label: string; desc: string }) => (
+        <div className="flex items-center justify-between py-4 border-b border-slate-800/30">
+            <div>
+                <p className="text-sm font-medium text-slate-200">{label}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{desc}</p>
+            </div>
+            <button onClick={onToggle} className="flex-shrink-0">
+                {on ? <ToggleRight size={32} className="text-blue-500" /> : <ToggleLeft size={32} className="text-slate-600" />}
+            </button>
+        </div>
+    );
+
+    return (
+        <div className="max-w-2xl space-y-6">
+            <div>
+                <h2 className="text-lg font-bold text-white">Settings</h2>
+                <p className="text-xs text-slate-500 font-mono">Protocol configuration and sandbox tools</p>
+            </div>
+
+            <div className="bg-gradient-to-r from-blue-500/5 to-emerald-500/5 rounded-xl border border-blue-500/15 p-5">
+                <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                        <CircleDollarSign size={20} className="text-blue-400" />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-white">Institutional Sandbox Faucet</h3>
+                        <p className="text-[11px] text-slate-400 font-mono">Mint 100,000 USDC (Testnet) to your wallet</p>
+                    </div>
+                </div>
+                <button
+                    onClick={handleMint}
+                    disabled={isFaucetBusy || faucetSuccess || !address}
+                    className={`w-full py-3 rounded-xl font-bold text-sm transition-all ${
+                        faucetSuccess
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                            : isFaucetBusy
+                                ? 'bg-blue-500/15 text-blue-400 border border-blue-500/20 cursor-wait'
+                                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/15'
+                    }`}
+                >
+                    {faucetSuccess ? 'Done - 100,000 USDC Minted' : isFaucetBusy ? 'Minting...' : 'Mint 100K USDC'}
+                </button>
+                {faucetHash && (
+                    <a href={`https://sepolia.arbiscan.io/tx/${faucetHash}`} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-1 mt-2 text-[11px] font-mono text-blue-400 hover:text-blue-300">
+                        View tx <ExternalLink size={10} />
+                    </a>
+                )}
+            </div>
+
+            <div className="bg-slate-900/40 rounded-xl border border-slate-800/50 p-5">
+                <h3 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-2">
+                    <Zap size={15} className="text-blue-400" /> Protocol
+                </h3>
+                <Toggle on={testnet} onToggle={() => setTestnet(!testnet)} label="Testnet Mode" desc="Use Arbitrum Sepolia for all transactions." />
+                <Toggle on={debugLogs} onToggle={() => setDebugLogs(!debugLogs)} label="Stylus Debug Logs" desc="Show verbose WASM execution logs in the Risk Engine feed." />
+                <div className="flex items-center justify-between py-4 border-b border-slate-800/30">
+                    <div>
+                        <p className="text-sm font-medium text-slate-200">Currency Display</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">How values are shown across the dashboard.</p>
+                    </div>
+                    <div className="flex rounded-lg overflow-hidden border border-slate-700/50">
+                        {(['USDC', 'ETH'] as const).map(c => (
+                            <button key={c} onClick={() => setCurrency(c)}
+                                className={`px-3 py-1.5 text-xs font-mono font-medium transition-colors ${currency === c ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800/50 text-slate-500 hover:text-slate-300'}`}>
+                                {c}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {debugLogs && (
+                <div className="bg-slate-900/40 rounded-xl border border-slate-800/50 overflow-hidden">
+                    <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-800/40">
+                        <Terminal size={13} className="text-emerald-400" /><span className="text-xs font-mono text-slate-400">Debug Console</span>
+                    </div>
+                    <div className="p-4 font-mono text-[11px] space-y-1 text-slate-500 max-h-40 overflow-y-auto">
+                        <p><span className="text-emerald-400">[OK]</span> stylus_sdk::runtime initialized</p>
+                        <p><span className="text-emerald-400">[OK]</span> wasm32-unknown-unknown target loaded</p>
+                        <p><span className="text-blue-400">[INFO]</span> ValuationEngine: {INSTITUTIONAL_ASSETS.length} assets registered</p>
+                        <p><span className="text-blue-400">[INFO]</span> DepreciationCurve: precomputed for {SECTORS.length - 1} sectors</p>
+                        <p><span className="text-amber-400">[WARN]</span> Oracle latency: 1.1s (threshold: 2.0s)</p>
+                        <p><span className="text-emerald-400">[OK]</span> All subsystems operational - ready for audit</p>
+                    </div>
+                </div>
+            )}
+
+            <div className="bg-slate-900/40 rounded-xl border border-slate-800/50 p-5">
+                <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                    <SettingsIcon size={15} className="text-slate-400" /> Configuration
+                </h3>
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    {[
+                        { k: 'Network', v: testnet ? 'Arbitrum Sepolia' : 'Arbitrum One', c: testnet ? 'text-amber-400' : 'text-emerald-400' },
+                        { k: 'Currency', v: currency, c: 'text-blue-400' },
+                        { k: 'Debug', v: debugLogs ? 'Enabled' : 'Disabled', c: debugLogs ? 'text-emerald-400' : 'text-slate-500' },
+                        { k: 'Engine', v: 'Stylus WASM v1.0', c: 'text-purple-400' },
+                    ].map((row, i) => (
+                        <div key={i} className="flex justify-between py-1.5 px-3 rounded-lg bg-slate-800/30">
+                            <span className="text-slate-500">{row.k}</span><span className={row.c}>{row.v}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="bg-red-500/5 rounded-xl border border-red-500/10 p-5">
+                <h3 className="text-sm font-semibold text-red-400 mb-2">Danger Zone</h3>
+                <p className="text-[11px] text-slate-500 mb-4">Clear cached data and reset local state. On-chain data is unaffected.</p>
+                <button
+                    onClick={() => { setCleared(true); setTimeout(() => setCleared(false), 2000); }}
+                    disabled={cleared}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all ${
+                        cleared ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20'
+                    }`}
+                >
+                    {cleared ? 'Cleared' : 'Clear Cache and Reset'}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+//  MAIN EXPORT 
+export type DashboardSection = 'dashboard' | 'market' | 'risk-engine' | 'governance' | 'settings';
+
+export default function LendingDashboard({ section = 'dashboard', onNavigate }: { section?: DashboardSection; onNavigate?: (s: DashboardSection) => void }) {
+    const { isConnected } = useAccount();
+    const [localSection, setLocalSection] = useState<DashboardSection>(section);
+    const [selectedAsset, setSelectedAsset] = useState<InstitutionalAsset | null>(null);
+    const [borrowStep, setBorrowStep] = useState(0);
+
+    useEffect(() => { setLocalSection(section); }, [section]);
+
+    const activeSection = onNavigate ? section : localSection;
+    const navigate = onNavigate || setLocalSection;
+
     const { data: hashApprove, writeContract: writeApprove, isPending: isApprovePending } = useWriteContract();
     const { isLoading: isApproving, isSuccess: isApproved } = useWaitForTransactionReceipt({ hash: hashApprove });
-
-    // 2. Escritura: Pedir Préstamo (Llama a Stylus internamente)
     const { data: hashLoan, writeContract: writeLoan, isPending: isLoanPending, error: loanError } = useWriteContract();
     const { isLoading: isLoaning, isSuccess: isLoaned } = useWaitForTransactionReceipt({ hash: hashLoan });
 
-    // Efectos para avanzar pasos visualmente
     useEffect(() => {
-        if (isApprovePending || isApproving) setStep(1);
-        else if (isApproved && step === 1) setStep(2); // Listo para pedir
-        else if (isLoanPending || isLoaning) setStep(3); // "Calculando en Rust..."
-        else if (isLoaned) setStep(4); // Éxito
-    }, [isApprovePending, isApproving, isApproved, isLoanPending, isLoaning, isLoaned, step]);
+        if (isApprovePending || isApproving) setBorrowStep(1);
+        else if (isApproved && borrowStep === 1) setBorrowStep(2);
+        else if (isLoanPending || isLoaning) setBorrowStep(3);
+        else if (isLoaned) setBorrowStep(4);
+    }, [isApprovePending, isApproving, isApproved, isLoanPending, isLoaning, isLoaned, borrowStep]);
 
-    const handleProcess = () => {
-        if (step === 0) {
-            // Paso 1: Aprobar (Token ID 0 hardcodeado para demo, ajusta si es necesario)
-            writeApprove({
-                address: NFT_ADDRESS,
-                abi: NFT_ABI,
-                functionName: 'approve',
-                args: [LENDING_POOL_ADDRESS, BigInt(0)]
-            });
-        } else if (step === 2) {
-            // Paso 2: Ejecutar Préstamo
-            writeLoan({
-                address: LENDING_POOL_ADDRESS,
-                abi: LENDING_ABI,
-                functionName: 'depositCollateralAndBorrow',
-                args: [BigInt(0)]
-            });
+    const handleBorrow = (asset: InstitutionalAsset) => {
+        if (borrowStep === 0) {
+            writeApprove({ address: NFT_ADDRESS, abi: NFT_ABI, functionName: 'approve', args: [LENDING_POOL_ADDRESS, BigInt(asset.id)] });
+        } else if (borrowStep === 2) {
+            writeLoan({ address: LENDING_POOL_ADDRESS, abi: LENDING_ABI, functionName: 'depositCollateralAndBorrow', args: [BigInt(asset.id)] });
         }
     };
 
-    return (
-        <div className="min-h-screen flex flex-col bg-gray-50">
-            {/* Header */}
-            <header className="px-4 py-4 flex items-center justify-between bg-white border-b border-gray-200">
-                <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">CX</div>
-                    <span className="font-bold text-gray-800">ColateralX</span>
+    const handleCloseModal = () => { setSelectedAsset(null); setBorrowStep(0); };
+    const isBusy = isApprovePending || isApproving || isLoanPending || isLoaning;
+
+    if (!isConnected) {
+        return (
+            <div className="flex flex-col items-center justify-center py-32 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-6">
+                    <Shield size={28} className="text-blue-400" />
                 </div>
-                <ConnectButton accountStatus="address" showBalance={false} />
-            </header>
+                <h2 className="text-xl font-bold text-white mb-2">Connect Your Wallet</h2>
+                <p className="text-sm text-slate-500 max-w-sm">
+                    Access the Colateral-X institutional RWA terminal. Connect to start collateralizing real-world assets on Arbitrum Stylus.
+                </p>
+                <div className="mt-6 flex items-center gap-2 text-[11px] font-mono text-slate-600">
+                    <Zap size={12} className="text-blue-400" /> Powered by Arbitrum Stylus and Rust
+                </div>
+            </div>
+        );
+    }
 
-            <main className="flex-1 flex flex-col items-center justify-center p-4">
-                {!isConnected ? (
-                    <div className="text-center">
-                        <h2 className="text-xl font-bold text-gray-700 mb-4">Conecta tu wallet para empezar</h2>
-                        <p className="text-gray-500 max-w-xs mx-auto">Accede a liquidez inmediata usando tus activos reales como garantía.</p>
-                    </div>
-                ) : (
-                    <div className="w-full max-w-md bg-white rounded-xl shadow-xl overflow-hidden border border-gray-100">
-                        {/* Imagen del Activo */}
-                        <div className="h-48 bg-gray-200 relative">
-                            <img src="/CAMION1.JPG" alt="Maquinaria" className="w-full h-full object-cover" />
-                            <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 text-xs rounded font-medium">
-                                Activo #000
-                            </div>
-                        </div>
-
-                        <div className="p-6">
-                            <div className="flex justify-between items-start mb-2">
-                                <div>
-                                    <h2 className="text-xl font-bold text-gray-800 leading-tight">Camión Industrial CAT</h2>
-                                    <p className="text-sm text-gray-500">Modelo 2023 • Excelente estado</p>
-                                </div>
-                                <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full border border-green-200">
-                                    Valuado
-                                </span>
-                            </div>
-
-                            {/* Simulación de Valoración Stylus (Visual) */}
-                            <div className="bg-blue-50 p-4 rounded-xl mb-6 flex justify-between items-center border border-blue-100 shadow-sm">
-                                <div>
-                                    <p className="text-blue-600 font-medium text-xs uppercase tracking-wide">Valoración Stylus (Rust)</p>
-                                    <p className="text-xs text-blue-400">Calculado on-chain</p>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-3xl font-bold text-blue-900">$20,500</span>
-                                    <span className="text-sm text-blue-600 font-medium ml-1">USDC</span>
-                                </div>
-                            </div>
-
-                            {/* Botón de Acción Principal */}
-                            <button
-                                onClick={handleProcess}
-                                disabled={isApprovePending || isApproving || isLoanPending || isLoaning || step === 4}
-                                className={`w-full py-4 rounded-xl font-bold text-lg transition-all transform active:scale-[0.98] ${step === 4
-                                    ? 'bg-green-500 text-white shadow-lg cursor-default'
-                                    : step === 1 || step === 3
-                                        ? 'bg-blue-400 text-white cursor-wait'
-                                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl hover:-translate-y-0.5'
-                                    }`}
-                            >
-                                {step === 0 && "Iniciar Trámite"}
-                                {step === 1 && (
-                                    <span className="flex items-center justify-center gap-2">
-                                        <span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></span>
-                                        Aprobando NFT...
-                                    </span>
-                                )}
-                                {step === 2 && "Solicitar Liquidez ($12,300)"}
-                                {step === 3 && (
-                                    <span className="flex items-center justify-center gap-2">
-                                        <span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></span>
-                                        Calculando Riesgo (Stylus)...
-                                    </span>
-                                )}
-                                {step === 4 && "¡Préstamo Recibido!"}
+    return (
+        <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <h1 className="text-xl font-bold text-white">
+                        {activeSection === 'dashboard' && 'Protocol Overview'}
+                        {activeSection === 'market' && 'Asset Market'}
+                        {activeSection === 'risk-engine' && 'Risk Engine'}
+                        {activeSection === 'governance' && 'Governance'}
+                        {activeSection === 'settings' && 'Settings'}
+                    </h1>
+                    <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                        {INSTITUTIONAL_ASSETS.length} assets - Stylus WASM v1.0 - Arbitrum Sepolia
+                    </p>
+                </div>
+                {!onNavigate && (
+                    <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900/50 border border-slate-800/40 w-fit">
+                        {([
+                            ['dashboard', 'Overview', <Layers size={14} key="d" />],
+                            ['market', 'Market', <Store size={14} key="m" />],
+                            ['risk-engine', 'Risk', <BarChart3 size={14} key="r" />],
+                            ['governance', 'DAO', <Vote size={14} key="g" />],
+                            ['settings', 'Settings', <SettingsIcon size={14} key="s" />],
+                        ] as [DashboardSection, string, React.ReactNode][]).map(([id, label, icon]) => (
+                            <button key={id} onClick={() => navigate(id)}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                    activeSection === id ? 'bg-blue-500/15 text-blue-400' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40'
+                                }`}>
+                                {icon}<span className="hidden sm:inline">{label}</span>
                             </button>
-
-                            {/* Feedback de Error */}
-                            {loanError && (
-                                <div className="mt-4 p-3 bg-red-50 text-red-600 text-xs rounded-lg border border-red-100">
-                                    Error: {loanError.message.slice(0, 100)}...
-                                </div>
-                            )}
-
-                            {/* Enlace al Explorer */}
-                            {hashLoan && (
-                                <div className="mt-6 text-center animate-fade-in-up">
-                                    <p className="text-xs text-gray-400 mb-1">Transacción confirmada en Arbitrum Sepolia</p>
-                                    <a
-                                        href={`https://sepolia.arbiscan.io/tx/${hashLoan}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors"
-                                    >
-                                        Ver en Arbiscan ↗
-                                    </a>
-                                </div>
-                            )}
-                        </div>
+                        ))}
                     </div>
                 )}
-            </main>
+            </div>
 
-            <footer className="p-4 text-center text-xs text-gray-400">
-                CollateralX • Arbitrum Hackathon 2026
-            </footer>
+            {activeSection === 'dashboard' && <DashboardOverview onGoToMarket={() => navigate('market')} />}
+            {activeSection === 'market' && <MarketSection onSelect={setSelectedAsset} />}
+            {activeSection === 'risk-engine' && <RiskEngineSection />}
+            {activeSection === 'governance' && <GovernanceSection />}
+            {activeSection === 'settings' && <SettingsSection />}
+
+            {selectedAsset && (
+                <AssetModal
+                    asset={selectedAsset} onClose={handleCloseModal} onBorrow={handleBorrow}
+                    borrowStep={borrowStep} isBusy={isBusy} txHash={hashLoan} txError={loanError?.message}
+                />
+            )}
         </div>
     );
 }

@@ -9,3 +9,6 @@ coverage
 coverage.json
 hardhat-network.d
 .stylus
+.vercel
+.vite
+.vercel

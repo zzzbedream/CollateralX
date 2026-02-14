@@ -19,9 +19,9 @@ We chose **Arbitrum Stylus** because calculating real-time asset depreciation re
 ```mermaid
 graph TD
     User((SME Owner))
-    UI[Frontend DApp<br/>Mobile-First UI]
-    LP[LendingPool.sol<br/>(Arbitrum EVM)]
-    SV[StylusValuator.rs<br/>(Arbitrum WASM)]
+    UI[Frontend DApp]
+    LP[LendingPool.sol]
+    SV[StylusValuator.rs]
     NFT[Asset NFT]
     USDC[USDC Token]
 
@@ -30,7 +30,7 @@ graph TD
     UI -->|2. Request Loan| LP
     LP -->|Transfer NFT| NFT
     LP -->|3. Get Valuation| SV
-    SV --"Complex Risk Math<br/>(Rust/WASM)"--> LP
+    SV --"Risk Math (Rust)"--> LP
     LP -->|4. Payout Loan| USDC
     USDC -->|Transfer| User
 ```

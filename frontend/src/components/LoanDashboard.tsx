@@ -80,7 +80,7 @@ export default function LendingDashboard() {
                     <div className="w-full max-w-md bg-white rounded-xl shadow-xl overflow-hidden border border-gray-100">
                         {/* Imagen del Activo */}
                         <div className="h-48 bg-gray-200 relative">
-                            <img src="/truck.webp" alt="Maquinaria" className="w-full h-full object-cover" />
+                            <img src="/CAMION1.JPG" alt="Maquinaria" className="w-full h-full object-cover" />
                             <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 text-xs rounded font-medium">
                                 Activo #000
                             </div>
@@ -114,10 +114,10 @@ export default function LendingDashboard() {
                                 onClick={handleProcess}
                                 disabled={isApprovePending || isApproving || isLoanPending || isLoaning || step === 4}
                                 className={`w-full py-4 rounded-xl font-bold text-lg transition-all transform active:scale-[0.98] ${step === 4
-                                        ? 'bg-green-500 text-white shadow-lg cursor-default'
-                                        : step === 1 || step === 3
-                                            ? 'bg-blue-400 text-white cursor-wait'
-                                            : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl hover:-translate-y-0.5'
+                                    ? 'bg-green-500 text-white shadow-lg cursor-default'
+                                    : step === 1 || step === 3
+                                        ? 'bg-blue-400 text-white cursor-wait'
+                                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl hover:-translate-y-0.5'
                                     }`}
                             >
                                 {step === 0 && "Iniciar Trámite"}

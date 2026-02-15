@@ -23,6 +23,10 @@ Small and medium enterprises (SMEs) in Latin America generate **60% of GDP** yet
 
 **Colateral-X** is an NFT-collateralized lending protocol that uses **Arbitrum Stylus** to run a Rust/WASM valuation engine on-chain. This engine computes real-time asset depreciation, risk scoring, and LTV calculations at **~99.9% lower gas cost** than equivalent Solidity. SMEs tokenize their real-world assets as NFTs and receive instant USDC loans.
 
+<p align="center">
+  <img src="frontend/public/assets/PRESENTACION LANDING.jpg" alt="3-Step Asset-to-Loan Process" width="720" />
+</p>
+
 ---
 
 ## Architecture

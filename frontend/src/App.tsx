@@ -409,6 +409,10 @@ function HowItWorks() {
                 <motion.h2 variants={fadeUp} custom={1} className="text-4xl sm:text-5xl md:text-6xl font-black tracking-tight mb-16">
                     Three Steps to <span className="text-gradient-green">Liquidity.</span>
                 </motion.h2>
+                {/* Hero Infographic */}
+                <motion.div variants={fadeUp} custom={1.5} className="mb-16 flex justify-center">
+                    <img src="/assets/PRESENTACION LANDING.jpg" alt="3-Step Asset-to-Loan Process" className="rounded-2xl shadow-2xl shadow-black/40 border border-slate-800/30 max-w-4xl w-full" />
+                </motion.div>
                 <div className="grid md:grid-cols-3 gap-8">
                     {steps.map((s, i) => (
                         <motion.div key={i} variants={fadeUp} custom={i + 2} className="relative group">

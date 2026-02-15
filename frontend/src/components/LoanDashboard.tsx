@@ -473,7 +473,7 @@ function Toast({ message, type, onClose }: { message: string; type: 'error' | 's
 //  ASSET DETAIL MODAL 
 function AssetModal({
     asset, onClose, onMint, onApprove, onBorrow,
-    mintStep, approveStep, borrowStep, isBusy, txHash, approveHash, mintHash,
+    mintStep, approveStep, borrowStep, isBusy, txHash, approveHash, mintHash, mintedTokenId,
 }: {
     asset: InstitutionalAsset; onClose: () => void;
     onMint: (a: InstitutionalAsset) => void;
@@ -482,7 +482,7 @@ function AssetModal({
     mintStep: 'idle' | 'pending' | 'confirming' | 'done' | 'error';
     approveStep: 'idle' | 'pending' | 'confirming' | 'done' | 'error';
     borrowStep: 'idle' | 'pending' | 'confirming' | 'done' | 'error';
-    isBusy: boolean; txHash?: string; approveHash?: string; mintHash?: string;
+    isBusy: boolean; txHash?: string; approveHash?: string; mintHash?: string; mintedTokenId?: bigint | null;
 }) {
     const [tab, setTab] = useState<ModalTab>('overview');
     const gasSaved = (asset.solidityGasCost - asset.stylusGasCost).toFixed(2);
@@ -669,7 +669,7 @@ function AssetModal({
                                         <span className="text-[9px] font-mono text-slate-600 bg-slate-800/50 px-1.5 py-0.5 rounded">Testnet Only</span>
                                     </div>
                                 </div>
-                                <p className="text-[10px] text-slate-500 mb-2">Mint token #{asset.id} to your wallet so you own it before borrowing.</p>
+                                <p className="text-[10px] text-slate-500 mb-2">Mint a unique NFT to your wallet so you own it before borrowing.</p>
                                 <button
                                     onClick={() => onMint(asset)}
                                     disabled={mintStep === 'pending' || mintStep === 'confirming' || mintStep === 'done'}
@@ -683,7 +683,7 @@ function AssetModal({
                                                     : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20'
                                     }`}
                                 >
-                                    {mintStep === 'done' ? `Minted Token #${asset.id}` : mintStep === 'pending' ? 'Confirm in Wallet...' : mintStep === 'confirming' ? 'Minting...' : mintStep === 'error' ? 'Retry Mint' : `Mint NFT #${asset.id}`}
+                                    {mintStep === 'done' ? `Minted Token #${mintedTokenId?.toString() ?? ''}` : mintStep === 'pending' ? 'Confirm in Wallet...' : mintStep === 'confirming' ? 'Minting...' : mintStep === 'error' ? 'Retry Mint' : `Mint NFT`}
                                 </button>
                                 {mintHash && (
                                     <a href={`https://sepolia.arbiscan.io/tx/${mintHash}`} target="_blank" rel="noopener noreferrer"
@@ -1110,6 +1110,7 @@ export default function LendingDashboard({ section = 'dashboard', onNavigate }: 
     const [mintStep, setMintStep] = useState<'idle' | 'pending' | 'confirming' | 'done' | 'error'>('idle');
     const [approveStep, setApproveStep] = useState<'idle' | 'pending' | 'confirming' | 'done' | 'error'>('idle');
     const [borrowStep, setBorrowStep] = useState<'idle' | 'pending' | 'confirming' | 'done' | 'error'>('idle');
+    const [mintedTokenId, setMintedTokenId] = useState<bigint | null>(null);
 
     useEffect(() => { setLocalSection(section); }, [section]);
 
@@ -1134,21 +1135,26 @@ export default function LendingDashboard({ section = 'dashboard', onNavigate }: 
     // ── Handlers with try/catch ──
     const handleMint = async (asset: InstitutionalAsset) => {
         if (!address) { setToast({ message: 'Connect your wallet first', type: 'error' }); return; }
+        // Generate unique tokenId: asset.id * 1000 + random offset to avoid collisions
+        const tokenId = BigInt(asset.id) * 1000n + BigInt(Math.floor(Math.random() * 900) + 100);
         try {
             setMintStep('pending');
-            await writeMintAsync({ address: NFT_ADDRESS, abi: NFT_ABI, functionName: 'mint', args: [address, BigInt(asset.id)], maxFeePerGas: parseGwei('0.5'), maxPriorityFeePerGas: parseGwei('0.01') });
+            setMintedTokenId(tokenId);
+            await writeMintAsync({ address: NFT_ADDRESS, abi: NFT_ABI, functionName: 'mint', args: [address, tokenId], gas: 300_000n, maxFeePerGas: parseGwei('0.5'), maxPriorityFeePerGas: parseGwei('0.01') });
             setMintStep('confirming');
         } catch (err) {
             console.error('Mint error:', err);
             setMintStep('error');
+            setMintedTokenId(null);
             setToast({ message: parseContractError(err), type: 'error' });
         }
     };
 
     const handleApprove = async (asset: InstitutionalAsset) => {
+        if (!mintedTokenId) { setToast({ message: 'Mint the NFT first', type: 'error' }); return; }
         try {
             setApproveStep('pending');
-            await writeApproveAsync({ address: NFT_ADDRESS, abi: NFT_ABI, functionName: 'approve', args: [LENDING_POOL_ADDRESS, BigInt(asset.id)], maxFeePerGas: parseGwei('0.5'), maxPriorityFeePerGas: parseGwei('0.01') });
+            await writeApproveAsync({ address: NFT_ADDRESS, abi: NFT_ABI, functionName: 'approve', args: [LENDING_POOL_ADDRESS, mintedTokenId], gas: 100_000n, maxFeePerGas: parseGwei('0.5'), maxPriorityFeePerGas: parseGwei('0.01') });
             setApproveStep('confirming');
         } catch (err) {
             console.error('Approve error:', err);
@@ -1158,9 +1164,10 @@ export default function LendingDashboard({ section = 'dashboard', onNavigate }: 
     };
 
     const handleBorrow = async (asset: InstitutionalAsset) => {
+        if (!mintedTokenId) { setToast({ message: 'Mint and approve first', type: 'error' }); return; }
         try {
             setBorrowStep('pending');
-            await writeBorrowAsync({ address: LENDING_POOL_ADDRESS, abi: LENDING_ABI, functionName: 'depositCollateralAndBorrow', args: [BigInt(asset.id)], maxFeePerGas: parseGwei('0.5'), maxPriorityFeePerGas: parseGwei('0.01') });
+            await writeBorrowAsync({ address: LENDING_POOL_ADDRESS, abi: LENDING_ABI, functionName: 'depositCollateralAndBorrow', args: [mintedTokenId], gas: 500_000n, maxFeePerGas: parseGwei('0.5'), maxPriorityFeePerGas: parseGwei('0.01') });
             setBorrowStep('confirming');
         } catch (err) {
             console.error('Borrow error:', err);
@@ -1169,7 +1176,7 @@ export default function LendingDashboard({ section = 'dashboard', onNavigate }: 
         }
     };
 
-    const handleCloseModal = () => { setSelectedAsset(null); setMintStep('idle'); setApproveStep('idle'); setBorrowStep('idle'); };
+    const handleCloseModal = () => { setSelectedAsset(null); setMintStep('idle'); setApproveStep('idle'); setBorrowStep('idle'); setMintedTokenId(null); };
     const isBusy = mintStep === 'pending' || mintStep === 'confirming' || approveStep === 'pending' || approveStep === 'confirming' || borrowStep === 'pending' || borrowStep === 'confirming';
 
     if (!isConnected) {
@@ -1235,7 +1242,7 @@ export default function LendingDashboard({ section = 'dashboard', onNavigate }: 
                     asset={selectedAsset} onClose={handleCloseModal}
                     onMint={handleMint} onApprove={handleApprove} onBorrow={handleBorrow}
                     mintStep={mintStep} approveStep={approveStep} borrowStep={borrowStep}
-                    isBusy={isBusy} txHash={borrowTxHash} approveHash={approveHash} mintHash={mintHash}
+                    isBusy={isBusy} txHash={borrowTxHash} approveHash={approveHash} mintHash={mintHash} mintedTokenId={mintedTokenId}
                 />
             )}
 

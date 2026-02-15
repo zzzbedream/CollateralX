@@ -90,8 +90,8 @@ export const NFT_ABI = [
 // ── Contract Addresses (Arbitrum Sepolia — deployed Feb 14, 2026) ──
 // LendingPool now points to the REAL Stylus/Rust valuator (not deployer placeholder)
 export const CONTRACTS = {
-    LENDING_POOL: '0xd9EE974233b089FCC4D541E1CdF54A7186F91d66' as `0x${string}`,
+    LENDING_POOL: '0xFc9f8c4107c6d4c2AFBdB7D25A30447FaB63b9bC' as `0x${string}`,
     STYLUS_VALUATOR: '0x023223d7b651a007dc42980cb9ca75f1e795eee1' as `0x${string}`,
-    MOCK_USDC: '0x5dAc64216Aa03B88ebDC9E5b46625e4780550355' as `0x${string}`,
-    MOCK_NFT: '0xDBb0CcB41C632596Ee50348CEc547B23B46E4f4b' as `0x${string}`,
+    MOCK_USDC: '0x265e31a371eFdDC5E6922E68dEaf5045E57f8429' as `0x${string}`,
+    MOCK_NFT: '0xAb78688e3B83f56c58bDf7D2520F5cA590EcDB2d' as `0x${string}`,
 }

@@ -19,8 +19,8 @@ contract MockUSDC is ERC20, Ownable {
         return _DECIMALS;
     }
 
-    /// @notice Allows the owner to mint additional tokens (for testing)
-    function mint(address to, uint256 amount) external onlyOwner {
+    /// @notice Allows anyone to mint tokens (testnet only — no access control for demo)
+    function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
 }

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
+import { parseGwei } from 'viem';
 import { CONTRACTS } from '../contracts';
 import {
     Search, X, TrendingUp, Activity, Zap, Shield, AlertTriangle,
@@ -23,6 +24,9 @@ const LENDING_ABI = [
 
 const NFT_ABI = [
     { inputs: [{ name: "to", type: "address" }, { name: "tokenId", type: "uint256" }], name: "approve", outputs: [], stateMutability: "nonpayable", type: "function" },
+    { inputs: [{ name: "tokenId", type: "uint256" }], name: "getApproved", outputs: [{ name: "", type: "address" }], stateMutability: "view", type: "function" },
+    { inputs: [{ name: "tokenId", type: "uint256" }], name: "ownerOf", outputs: [{ name: "", type: "address" }], stateMutability: "view", type: "function" },
+    { inputs: [{ name: "to", type: "address" }, { name: "tokenId", type: "uint256" }], name: "mint", outputs: [], stateMutability: "nonpayable", type: "function" },
 ] as const;
 
 const MOCK_USDC_ABI = [
@@ -30,7 +34,8 @@ const MOCK_USDC_ABI = [
 ] as const;
 
 //  TYPES 
-type Sector = 'All' | 'Agro' | 'Tech' | 'Energy' | 'Heavy' | 'Retail' | 'Logistics';
+type Sector = 'All' | 'Agro' | 'Tech' | 'Energy' | 'Heavy' | 'Retail' | 'Logistics' | 'Health';
+type Tier = 'All' | 'SME' | 'Enterprise';
 type RiskRating = 'AAA' | 'AA+' | 'AA' | 'A+' | 'A' | 'BBB' | 'BB+' | 'B+';
 type AuditStatus = 'verified' | 'pending' | 'in-review';
 type ModalTab = 'overview' | 'contract-logic' | 'history';
@@ -39,6 +44,7 @@ interface InstitutionalAsset {
     id: number;
     name: string;
     sector: Exclude<Sector, 'All'>;
+    tier: Exclude<Tier, 'All'>;
     valuation: number;
     maxLoan: number;
     riskRating: RiskRating;
@@ -57,34 +63,42 @@ interface InstitutionalAsset {
     issuer: string;
 }
 
-//  INSTITUTIONAL ASSETS 
+//  INSTITUTIONAL ASSETS (Hybrid LatAm SME + Enterprise) 
 const INSTITUTIONAL_ASSETS: InstitutionalAsset[] = [
-    { id: 1,  name: 'John Deere 8R 410 Tractor',          sector: 'Agro',      valuation: 385000,  maxLoan: 231000,  riskRating: 'AA+', riskScore: 18, apy: 6.8,  depreciation: 7.5,  stylusGasCost: 0.04, solidityGasCost: 48.20, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1592982537447-6f2a6a0c7c18?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '24 mo', issuer: 'AgriDAO LatAm' },
-    { id: 2,  name: 'Netafim Smart Irrigation System',     sector: 'Agro',      valuation: 175000,  maxLoan: 105000,  riskRating: 'AAA', riskScore: 12, apy: 5.9,  depreciation: 4.2,  stylusGasCost: 0.03, solidityGasCost: 42.10, condition: 'New',       year: 2026, image: 'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '36 mo', issuer: 'AgriDAO LatAm' },
-    { id: 3,  name: 'Case IH 9250 Combine Harvester',     sector: 'Agro',      valuation: 520000,  maxLoan: 312000,  riskRating: 'AA',  riskScore: 22, apy: 7.4,  depreciation: 9.8,  stylusGasCost: 0.05, solidityGasCost: 51.30, condition: 'Good',      year: 2024, image: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=80', status: 'collateralized',  auditStatus: 'verified',  ltvRatio: 60, maturity: '18 mo', issuer: 'AgriDAO LatAm' },
-    { id: 4,  name: 'Nvidia H100 GPU Cluster (x8)',        sector: 'Tech',      valuation: 480000,  maxLoan: 264000,  riskRating: 'A+',  riskScore: 32, apy: 9.8,  depreciation: 18.5, stylusGasCost: 0.06, solidityGasCost: 55.80, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1558494949-ef526b0042a0?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'in-review', ltvRatio: 55, maturity: '12 mo', issuer: 'TechBridge Inc' },
-    { id: 5,  name: 'Dell PowerEdge R760 Rack',            sector: 'Tech',      valuation: 128000,  maxLoan: 70400,   riskRating: 'A',   riskScore: 28, apy: 8.2,  depreciation: 15.0, stylusGasCost: 0.04, solidityGasCost: 46.50, condition: 'Good',      year: 2024, image: 'https://images.unsplash.com/photo-1597852074816-d933c7d2b988?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 55, maturity: '12 mo', issuer: 'TechBridge Inc' },
-    { id: 6,  name: 'Ericsson 5G Antenna Array',           sector: 'Tech',      valuation: 290000,  maxLoan: 159500,  riskRating: 'AA',  riskScore: 24, apy: 7.5,  depreciation: 11.0, stylusGasCost: 0.04, solidityGasCost: 49.20, condition: 'New',       year: 2026, image: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=800&q=80', status: 'pending',         auditStatus: 'pending',   ltvRatio: 55, maturity: '24 mo', issuer: 'TelecomDAO' },
-    { id: 7,  name: 'SunPower Industrial Array (1.2MW)',   sector: 'Energy',    valuation: 680000,  maxLoan: 442000,  riskRating: 'AAA', riskScore: 10, apy: 5.5,  depreciation: 2.8,  stylusGasCost: 0.03, solidityGasCost: 44.80, condition: 'New',       year: 2026, image: 'https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 65, maturity: '60 mo', issuer: 'GreenVault DAO' },
-    { id: 8,  name: 'Siemens Gamesa SG 14-236 Turbine',   sector: 'Energy',    valuation: 1250000, maxLoan: 812500,  riskRating: 'AAA', riskScore: 8,  apy: 5.2,  depreciation: 3.0,  stylusGasCost: 0.05, solidityGasCost: 52.40, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1532601224476-15c79f2f7a51?auto=format&fit=crop&w=800&q=80', status: 'collateralized',  auditStatus: 'verified',  ltvRatio: 65, maturity: '60 mo', issuer: 'GreenVault DAO' },
-    { id: 9,  name: 'Caterpillar 330 GC Excavator',       sector: 'Heavy',     valuation: 410000,  maxLoan: 246000,  riskRating: 'AA',  riskScore: 24, apy: 7.6,  depreciation: 8.5,  stylusGasCost: 0.05, solidityGasCost: 50.10, condition: 'Good',      year: 2024, image: 'https://images.unsplash.com/photo-1578322742918-6c845423f46f?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '18 mo', issuer: 'InfraBuild DAO' },
-    { id: 10, name: 'Liebherr 280 EC-H Tower Crane',      sector: 'Heavy',     valuation: 920000,  maxLoan: 552000,  riskRating: 'A+',  riskScore: 30, apy: 8.4,  depreciation: 7.0,  stylusGasCost: 0.06, solidityGasCost: 54.90, condition: 'Good',      year: 2023, image: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'in-review', ltvRatio: 60, maturity: '24 mo', issuer: 'InfraBuild DAO' },
-    { id: 11, name: 'Volvo FH16 Fleet (x5 Units)',        sector: 'Logistics', valuation: 875000,  maxLoan: 525000,  riskRating: 'AA+', riskScore: 20, apy: 7.0,  depreciation: 12.0, stylusGasCost: 0.05, solidityGasCost: 53.60, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '24 mo', issuer: 'LogiChain DAO' },
-    { id: 12, name: 'Komatsu 930E Mining Truck',          sector: 'Heavy',     valuation: 1450000, maxLoan: 870000,  riskRating: 'A',   riskScore: 35, apy: 9.2,  depreciation: 10.5, stylusGasCost: 0.06, solidityGasCost: 56.30, condition: 'Fair',      year: 2022, image: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80', status: 'pending',         auditStatus: 'pending',   ltvRatio: 60, maturity: '18 mo', issuer: 'MineDAO' },
-    { id: 13, name: 'Siemens MRI Magnetom Vida',          sector: 'Retail',    valuation: 1850000, maxLoan: 1110000, riskRating: 'AAA', riskScore: 9,  apy: 5.0,  depreciation: 7.5,  stylusGasCost: 0.04, solidityGasCost: 47.80, condition: 'Excellent', year: 2025, image: 'https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=800&q=80', status: 'collateralized',  auditStatus: 'verified',  ltvRatio: 60, maturity: '48 mo', issuer: 'MedChain DAO' },
-    { id: 14, name: 'BYD Electric Delivery Fleet (x12)',   sector: 'Logistics', valuation: 540000,  maxLoan: 324000,  riskRating: 'AA',  riskScore: 22, apy: 7.1,  depreciation: 13.0, stylusGasCost: 0.04, solidityGasCost: 48.90, condition: 'New',       year: 2026, image: 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '24 mo', issuer: 'LogiChain DAO' },
-    { id: 15, name: 'Maersk Reefer Container (Tokenized)', sector: 'Logistics', valuation: 92000,   maxLoan: 55200,   riskRating: 'A+',  riskScore: 26, apy: 7.8,  depreciation: 5.5,  stylusGasCost: 0.03, solidityGasCost: 43.20, condition: 'Good',      year: 2024, image: 'https://images.unsplash.com/photo-1494412574643-ff11b0a5eb19?auto=format&fit=crop&w=800&q=80', status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '12 mo', issuer: 'LogiChain DAO' },
+    // ── SME Tier (LatAm Reality) ──
+    { id: 1,  name: 'Horno Industrial Maigas',              sector: 'Retail',    tier: 'SME',        valuation: 4500,    maxLoan: 2700,    riskRating: 'BB+', riskScore: 38, apy: 12.5, depreciation: 15.0, stylusGasCost: 0.02, solidityGasCost: 42.10, condition: 'Good',      year: 2024, image: '/assets/horno.png',            status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '6 mo',  issuer: 'PyME LatAm DAO' },
+    { id: 2,  name: 'Flota Motos Honda (5u)',               sector: 'Logistics', tier: 'SME',        valuation: 8500,    maxLoan: 5100,    riskRating: 'BB+', riskScore: 35, apy: 11.8, depreciation: 18.0, stylusGasCost: 0.02, solidityGasCost: 43.50, condition: 'Good',      year: 2025, image: '/assets/moto.png',             status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '12 mo', issuer: 'PyME LatAm DAO' },
+    { id: 3,  name: 'Sillón Dental Hidráulico',            sector: 'Health',    tier: 'SME',        valuation: 6200,    maxLoan: 3720,    riskRating: 'BBB', riskScore: 30, apy: 10.2, depreciation: 10.0, stylusGasCost: 0.02, solidityGasCost: 41.80, condition: 'Excellent', year: 2025, image: '/assets/maquinadental.png',    status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '12 mo', issuer: 'PyME LatAm DAO' },
+    // ── Enterprise Tier ──
+    { id: 4,  name: 'John Deere 8R Tractor',               sector: 'Agro',      tier: 'Enterprise', valuation: 350000,  maxLoan: 210000,  riskRating: 'AA+', riskScore: 18, apy: 6.8,  depreciation: 7.5,  stylusGasCost: 0.04, solidityGasCost: 48.20, condition: 'Excellent', year: 2025, image: '/assets/johndeere.png',        status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '24 mo', issuer: 'AgriDAO LatAm' },
+    { id: 5,  name: 'Nvidia H100 GPU Cluster (x8)',        sector: 'Tech',      tier: 'Enterprise', valuation: 800000,  maxLoan: 440000,  riskRating: 'A+',  riskScore: 32, apy: 9.8,  depreciation: 18.5, stylusGasCost: 0.06, solidityGasCost: 55.80, condition: 'Excellent', year: 2025, image: '/assets/RAGCPU.png',            status: 'available',       auditStatus: 'in-review', ltvRatio: 55, maturity: '12 mo', issuer: 'TechBridge Inc' },
+    { id: 6,  name: 'Vestas Wind Turbine V236',            sector: 'Energy',    tier: 'Enterprise', valuation: 1200000, maxLoan: 780000,  riskRating: 'AAA', riskScore: 8,  apy: 5.2,  depreciation: 3.0,  stylusGasCost: 0.05, solidityGasCost: 52.40, condition: 'New',       year: 2026, image: '/assets/TURBINAEOLICA.png',    status: 'available',       auditStatus: 'verified',  ltvRatio: 65, maturity: '60 mo', issuer: 'GreenVault DAO' },
+    { id: 7,  name: 'Netafim Smart Irrigation System',     sector: 'Agro',      tier: 'Enterprise', valuation: 175000,  maxLoan: 105000,  riskRating: 'AAA', riskScore: 12, apy: 5.9,  depreciation: 4.2,  stylusGasCost: 0.03, solidityGasCost: 42.10, condition: 'New',       year: 2026, image: '/assets/Riego.png',             status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '36 mo', issuer: 'AgriDAO LatAm' },
+    { id: 8,  name: 'Case IH 9250 Combine Harvester',     sector: 'Agro',      tier: 'Enterprise', valuation: 520000,  maxLoan: 312000,  riskRating: 'AA',  riskScore: 22, apy: 7.4,  depreciation: 9.8,  stylusGasCost: 0.05, solidityGasCost: 51.30, condition: 'Good',      year: 2024, image: '/assets/cosechadora.png',      status: 'collateralized',  auditStatus: 'verified',  ltvRatio: 60, maturity: '18 mo', issuer: 'AgriDAO LatAm' },
+    { id: 9,  name: 'Dell PowerEdge R760 Rack',            sector: 'Tech',      tier: 'Enterprise', valuation: 128000,  maxLoan: 70400,   riskRating: 'A',   riskScore: 28, apy: 8.2,  depreciation: 15.0, stylusGasCost: 0.04, solidityGasCost: 46.50, condition: 'Good',      year: 2024, image: '/assets/RAGCPU.png',            status: 'available',       auditStatus: 'verified',  ltvRatio: 55, maturity: '12 mo', issuer: 'TechBridge Inc' },
+    { id: 10, name: 'SunPower Industrial Array (1.2MW)',   sector: 'Energy',    tier: 'Enterprise', valuation: 680000,  maxLoan: 442000,  riskRating: 'AAA', riskScore: 10, apy: 5.5,  depreciation: 2.8,  stylusGasCost: 0.03, solidityGasCost: 44.80, condition: 'New',       year: 2026, image: '/assets/solar.png',             status: 'available',       auditStatus: 'verified',  ltvRatio: 65, maturity: '60 mo', issuer: 'GreenVault DAO' },
+    { id: 11, name: 'Caterpillar 330 GC Excavator',       sector: 'Heavy',     tier: 'Enterprise', valuation: 410000,  maxLoan: 246000,  riskRating: 'AA',  riskScore: 24, apy: 7.6,  depreciation: 8.5,  stylusGasCost: 0.05, solidityGasCost: 50.10, condition: 'Good',      year: 2024, image: '/assets/excavadora.png',       status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '18 mo', issuer: 'InfraBuild DAO' },
+    { id: 12, name: 'Volvo FH16 Fleet (x5 Units)',        sector: 'Logistics', tier: 'Enterprise', valuation: 875000,  maxLoan: 525000,  riskRating: 'AA+', riskScore: 20, apy: 7.0,  depreciation: 12.0, stylusGasCost: 0.05, solidityGasCost: 53.60, condition: 'Excellent', year: 2025, image: '/assets/volvo.png',             status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '24 mo', issuer: 'LogiChain DAO' },
+    { id: 13, name: 'BYD Electric Delivery Fleet (x12)',   sector: 'Logistics', tier: 'Enterprise', valuation: 540000,  maxLoan: 324000,  riskRating: 'AA',  riskScore: 22, apy: 7.1,  depreciation: 13.0, stylusGasCost: 0.04, solidityGasCost: 48.90, condition: 'New',       year: 2026, image: '/assets/byd.png',               status: 'available',       auditStatus: 'verified',  ltvRatio: 60, maturity: '24 mo', issuer: 'LogiChain DAO' },
+    { id: 14, name: 'Komatsu 930E Mining Truck',          sector: 'Heavy',     tier: 'Enterprise', valuation: 1450000, maxLoan: 870000,  riskRating: 'A',   riskScore: 35, apy: 9.2,  depreciation: 10.5, stylusGasCost: 0.06, solidityGasCost: 56.30, condition: 'Fair',      year: 2022, image: '/assets/komatsu.png',           status: 'pending',         auditStatus: 'pending',   ltvRatio: 60, maturity: '18 mo', issuer: 'MineDAO' },
+    { id: 15, name: 'Siemens MRI Magnetom Vida',          sector: 'Health',    tier: 'Enterprise', valuation: 1850000, maxLoan: 1110000, riskRating: 'AAA', riskScore: 9,  apy: 5.0,  depreciation: 7.5,  stylusGasCost: 0.04, solidityGasCost: 47.80, condition: 'Excellent', year: 2025, image: '/assets/MRI.png',               status: 'collateralized',  auditStatus: 'verified',  ltvRatio: 60, maturity: '48 mo', issuer: 'MedChain DAO' },
 ];
 
-const SECTORS: Sector[] = ['All', 'Agro', 'Tech', 'Energy', 'Heavy', 'Retail', 'Logistics'];
+const SECTORS: Sector[] = ['All', 'Agro', 'Tech', 'Energy', 'Heavy', 'Retail', 'Logistics', 'Health'];
+const TIERS: Tier[] = ['All', 'SME', 'Enterprise'];
 
 const SECTOR_ICONS: Record<string, React.ReactNode> = {
     Agro: <Wheat size={14} />, Tech: <Cpu size={14} />, Energy: <Zap size={14} />,
-    Heavy: <HardHat size={14} />, Retail: <ShoppingBag size={14} />, Logistics: <Container size={14} />,
+    Heavy: <HardHat size={14} />, Retail: <ShoppingBag size={14} />, Logistics: <Container size={14} />, Health: <Shield size={14} />,
 };
 
 const SECTOR_COLORS: Record<string, string> = {
-    Agro: '#22C55E', Tech: '#3B82F6', Energy: '#F59E0B', Heavy: '#EF4444', Retail: '#A855F7', Logistics: '#06B6D4',
+    Agro: '#22C55E', Tech: '#3B82F6', Energy: '#F59E0B', Heavy: '#EF4444', Retail: '#A855F7', Logistics: '#06B6D4', Health: '#EC4899',
+};
+
+const TIER_CONFIG: Record<Exclude<Tier, 'All'>, { icon: React.ReactNode; label: string; desc: string; color: string; bg: string; border: string }> = {
+    SME:        { icon: <Store size={16} />,    label: 'PyME / SME',    desc: 'Small businesses, $1K-$50K assets',     color: 'text-amber-400',  bg: 'bg-amber-500/10',  border: 'border-amber-500/30' },
+    Enterprise: { icon: <Landmark size={16} />, label: 'Enterprise',    desc: 'Large-scale industrial, $100K-$2M+',    color: 'text-blue-400',   bg: 'bg-blue-500/10',   border: 'border-blue-500/30' },
 };
 
 const RATING_COLORS: Record<string, string> = {
@@ -287,17 +301,46 @@ function DashboardOverview({ onGoToMarket }: { onGoToMarket: () => void }) {
 function MarketSection({ onSelect }: { onSelect: (a: InstitutionalAsset) => void }) {
     const [search, setSearch] = useState('');
     const [sector, setSector] = useState<Sector>('All');
+    const [tier, setTier] = useState<Tier>('All');
 
     const filtered = useMemo(() =>
         INSTITUTIONAL_ASSETS.filter(a => {
             const matchSearch = a.name.toLowerCase().includes(search.toLowerCase()) || a.issuer.toLowerCase().includes(search.toLowerCase());
             const matchSector = sector === 'All' || a.sector === sector;
-            return matchSearch && matchSector;
+            const matchTier = tier === 'All' || a.tier === tier;
+            return matchSearch && matchSector && matchTier;
         }),
-    [search, sector]);
+    [search, sector, tier]);
+
+    const smeCount = INSTITUTIONAL_ASSETS.filter(a => a.tier === 'SME').length;
+    const entCount = INSTITUTIONAL_ASSETS.filter(a => a.tier === 'Enterprise').length;
 
     return (
         <div className="space-y-5">
+            {/* ── Tier Segmentation Tabs ── */}
+            <div className="grid grid-cols-3 gap-3">
+                {TIERS.map(t => {
+                    const isActive = tier === t;
+                    const count = t === 'All' ? INSTITUTIONAL_ASSETS.length : t === 'SME' ? smeCount : entCount;
+                    const cfg = t === 'All'
+                        ? { icon: <Layers size={18} />, label: 'All Assets', desc: `${count} total assets`, color: isActive ? 'text-white' : 'text-slate-400', bg: isActive ? 'bg-slate-800/60' : 'bg-slate-900/30', border: isActive ? 'border-slate-600/50' : 'border-slate-800/40' }
+                        : { ...TIER_CONFIG[t], icon: TIER_CONFIG[t].icon, bg: isActive ? TIER_CONFIG[t].bg : 'bg-slate-900/30', border: isActive ? TIER_CONFIG[t].border : 'border-slate-800/40', color: isActive ? TIER_CONFIG[t].color : 'text-slate-400' };
+                    return (
+                        <button key={t} onClick={() => setTier(t)}
+                            className={`relative flex items-center gap-3 p-4 rounded-xl border transition-all group hover:border-slate-700/60 ${cfg.bg} ${cfg.border}`}>
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${isActive ? (t === 'All' ? 'bg-white/10' : TIER_CONFIG[t !== 'All' ? t : 'SME'].bg) : 'bg-slate-800/50'} ${cfg.color}`}>
+                                {cfg.icon}
+                            </div>
+                            <div className="text-left min-w-0">
+                                <p className={`text-sm font-bold ${cfg.color} transition-colors`}>{t === 'All' ? 'All Assets' : TIER_CONFIG[t].label}</p>
+                                <p className="text-[10px] text-slate-500 font-mono">{count} assets{t !== 'All' ? ` — ${TIER_CONFIG[t].desc}` : ''}</p>
+                            </div>
+                            {isActive && <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-400 animate-pulse" />}
+                        </button>
+                    );
+                })}
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-3">
                 <div className="relative flex-1">
                     <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -331,7 +374,8 @@ function MarketSection({ onSelect }: { onSelect: (a: InstitutionalAsset) => void
             </div>
 
             <p className="text-[11px] font-mono text-slate-600">
-                Showing <span className="text-slate-400">{filtered.length}</span> of {INSTITUTIONAL_ASSETS.length} institutional assets
+                Showing <span className="text-slate-400">{filtered.length}</span> of {INSTITUTIONAL_ASSETS.length} assets
+                {tier !== 'All' && <span> — <span className={tier === 'SME' ? 'text-amber-400' : 'text-blue-400'}>{tier}</span> tier</span>}
             </p>
 
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -354,8 +398,11 @@ function MarketSection({ onSelect }: { onSelect: (a: InstitutionalAsset) => void
                                 <span style={{ color: SECTOR_COLORS[asset.sector] }}>{SECTOR_ICONS[asset.sector]}</span>
                                 {asset.sector}
                             </div>
-                            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[10px] font-mono text-slate-400">
-                                #{asset.id.toString().padStart(3, '0')}
+                            <div className="absolute bottom-2 right-2 flex items-center gap-1.5">
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${asset.tier === 'SME' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' : 'bg-blue-500/20 text-blue-400 border border-blue-500/20'}`}>
+                                    {asset.tier}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-black/60 text-[10px] font-mono text-slate-400">#{asset.id.toString().padStart(3, '0')}</span>
                             </div>
                         </div>
                         <div className="p-4">
@@ -396,12 +443,46 @@ function MarketSection({ onSelect }: { onSelect: (a: InstitutionalAsset) => void
     );
 }
 
+//  TOAST NOTIFICATION 
+function Toast({ message, type, onClose }: { message: string; type: 'error' | 'success' | 'info'; onClose: () => void }) {
+    useEffect(() => {
+        const timer = setTimeout(onClose, 8000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+    const colors = {
+        error: 'bg-red-500/10 border-red-500/30 text-red-400',
+        success: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
+        info: 'bg-blue-500/10 border-blue-500/30 text-blue-400',
+    };
+    return (
+        <div className={`fixed top-20 right-4 z-[60] max-w-md rounded-xl border p-4 shadow-2xl backdrop-blur-xl ${colors[type]}`} style={{ animation: 'fadeInUp 0.3s ease-out' }}>
+            <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 mt-0.5">
+                    {type === 'error' ? <XCircle size={16} /> : type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold mb-1">{type === 'error' ? 'Transaction Failed' : type === 'success' ? 'Success' : 'Info'}</p>
+                    <p className="text-[11px] font-mono opacity-80 break-all leading-relaxed">{message}</p>
+                </div>
+                <button onClick={onClose} className="flex-shrink-0 opacity-50 hover:opacity-100"><X size={14} /></button>
+            </div>
+        </div>
+    );
+}
+
 //  ASSET DETAIL MODAL 
 function AssetModal({
-    asset, onClose, onBorrow, borrowStep, isBusy, txHash, txError,
+    asset, onClose, onMint, onApprove, onBorrow,
+    mintStep, approveStep, borrowStep, isBusy, txHash, approveHash, mintHash,
 }: {
-    asset: InstitutionalAsset; onClose: () => void; onBorrow: (a: InstitutionalAsset) => void;
-    borrowStep: number; isBusy: boolean; txHash?: string; txError?: string;
+    asset: InstitutionalAsset; onClose: () => void;
+    onMint: (a: InstitutionalAsset) => void;
+    onApprove: (a: InstitutionalAsset) => void;
+    onBorrow: (a: InstitutionalAsset) => void;
+    mintStep: 'idle' | 'pending' | 'confirming' | 'done' | 'error';
+    approveStep: 'idle' | 'pending' | 'confirming' | 'done' | 'error';
+    borrowStep: 'idle' | 'pending' | 'confirming' | 'done' | 'error';
+    isBusy: boolean; txHash?: string; approveHash?: string; mintHash?: string;
 }) {
     const [tab, setTab] = useState<ModalTab>('overview');
     const gasSaved = (asset.solidityGasCost - asset.stylusGasCost).toFixed(2);
@@ -571,34 +652,100 @@ function AssetModal({
                     )}
                 </div>
 
-                {/* Action Footer */}
-                <div className="p-4 border-t border-slate-800/40 flex-shrink-0">
-                    <button
-                        onClick={() => onBorrow(asset)}
-                        disabled={isBusy || borrowStep === 4 || asset.status !== 'available'}
-                        className={`w-full py-3 rounded-xl font-bold text-sm transition-all ${
-                            asset.status !== 'available'
-                                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                                : borrowStep === 4
-                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                    : isBusy
-                                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20 cursor-wait'
-                                        : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
-                        }`}
-                    >
-                        {asset.status !== 'available'
-                            ? `${asset.status === 'collateralized' ? 'Already Collateralized' : 'Pending Review'}`
-                            : borrowStep === 0 ? `Request Loan - ${fmtFull(asset.maxLoan)} via Stylus`
-                            : borrowStep === 1 ? 'Approving NFT...'
-                            : borrowStep === 2 ? 'Confirm Borrow Execution'
-                            : borrowStep === 3 ? 'Computing Risk (Stylus/Rust)...'
-                            : 'Loan Disbursed Successfully'}
-                    </button>
-                    {txError && <p className="mt-2 text-[11px] font-mono text-red-400 text-center">{txError.slice(0, 120)}</p>}
+                {/* Action Footer — Separated Debug Flow */}
+                <div className="p-4 border-t border-slate-800/40 flex-shrink-0 space-y-3">
+                    {asset.status !== 'available' ? (
+                        <div className="w-full py-3 rounded-xl bg-slate-800 text-slate-500 text-sm font-bold text-center">
+                            {asset.status === 'collateralized' ? 'Already Collateralized' : 'Pending Review'}
+                        </div>
+                    ) : (
+                        <>
+                            {/* Step 0: Mint NFT (Testnet Debug) */}
+                            <div className="rounded-xl bg-amber-500/5 border border-amber-500/15 p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-5 h-5 rounded-md bg-amber-500/10 flex items-center justify-center text-amber-400 text-[10px] font-bold">0</span>
+                                        <span className="text-[11px] font-medium text-amber-400">Debug: Mint This NFT</span>
+                                        <span className="text-[9px] font-mono text-slate-600 bg-slate-800/50 px-1.5 py-0.5 rounded">Testnet Only</span>
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-slate-500 mb-2">Mint token #{asset.id} to your wallet so you own it before borrowing.</p>
+                                <button
+                                    onClick={() => onMint(asset)}
+                                    disabled={mintStep === 'pending' || mintStep === 'confirming' || mintStep === 'done'}
+                                    className={`w-full py-2 rounded-lg text-xs font-bold transition-all ${
+                                        mintStep === 'done'
+                                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                                            : mintStep === 'pending' || mintStep === 'confirming'
+                                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20 cursor-wait'
+                                                : mintStep === 'error'
+                                                    ? 'bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20'
+                                                    : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20'
+                                    }`}
+                                >
+                                    {mintStep === 'done' ? `Minted Token #${asset.id}` : mintStep === 'pending' ? 'Confirm in Wallet...' : mintStep === 'confirming' ? 'Minting...' : mintStep === 'error' ? 'Retry Mint' : `Mint NFT #${asset.id}`}
+                                </button>
+                                {mintHash && (
+                                    <a href={`https://sepolia.arbiscan.io/tx/${mintHash}`} target="_blank" rel="noopener noreferrer"
+                                        className="flex items-center justify-center gap-1 mt-1.5 text-[10px] font-mono text-blue-400 hover:text-blue-300">
+                                        View mint tx <ExternalLink size={9} />
+                                    </a>
+                                )}
+                            </div>
+
+                            {/* Step 1: Approve */}
+                            <button
+                                onClick={() => onApprove(asset)}
+                                disabled={approveStep === 'pending' || approveStep === 'confirming' || approveStep === 'done' || borrowStep === 'done'}
+                                className={`w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                                    approveStep === 'done' || borrowStep !== 'idle'
+                                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                                        : approveStep === 'pending' || approveStep === 'confirming'
+                                            ? 'bg-blue-500/15 text-blue-400 border border-blue-500/20 cursor-wait'
+                                            : approveStep === 'error'
+                                                ? 'bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/15'
+                                                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/50'
+                                }`}
+                            >
+                                <span className="w-5 h-5 rounded-md bg-white/5 flex items-center justify-center text-[10px] font-bold">1</span>
+                                {approveStep === 'done' || borrowStep !== 'idle' ? 'NFT Approved' : approveStep === 'pending' ? 'Confirm in Wallet...' : approveStep === 'confirming' ? 'Approving...' : approveStep === 'error' ? 'Retry Approve' : 'Approve NFT Transfer'}
+                            </button>
+                            {approveHash && (
+                                <a href={`https://sepolia.arbiscan.io/tx/${approveHash}`} target="_blank" rel="noopener noreferrer"
+                                    className="flex items-center justify-center gap-1 text-[10px] font-mono text-blue-400 hover:text-blue-300">
+                                    View approve tx <ExternalLink size={9} />
+                                </a>
+                            )}
+
+                            {/* Step 2: Deposit & Borrow */}
+                            <button
+                                onClick={() => onBorrow(asset)}
+                                disabled={approveStep !== 'done' || borrowStep === 'pending' || borrowStep === 'confirming' || borrowStep === 'done'}
+                                className={`w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                                    borrowStep === 'done'
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                        : borrowStep === 'pending' || borrowStep === 'confirming'
+                                            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20 cursor-wait'
+                                            : borrowStep === 'error'
+                                                ? 'bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/15'
+                                                : approveStep === 'done'
+                                                    ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                                                    : 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-800/40'
+                                }`}
+                            >
+                                <span className="w-5 h-5 rounded-md bg-white/5 flex items-center justify-center text-[10px] font-bold">2</span>
+                                {borrowStep === 'done' ? `Loan Disbursed — ${fmtFull(asset.maxLoan)}`
+                                    : borrowStep === 'pending' ? 'Confirm in Wallet...'
+                                    : borrowStep === 'confirming' ? 'Computing Risk (Stylus/Rust)...'
+                                    : borrowStep === 'error' ? 'Retry Borrow'
+                                    : `Deposit & Borrow ${fmtFull(asset.maxLoan)}`}
+                            </button>
+                        </>
+                    )}
                     {txHash && (
                         <a href={`https://sepolia.arbiscan.io/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1 mt-2 text-[11px] font-mono text-blue-400 hover:text-blue-300 transition-colors">
-                            View on Arbiscan <ExternalLink size={10} />
+                            className="flex items-center justify-center gap-1 text-[11px] font-mono text-blue-400 hover:text-blue-300 transition-colors">
+                            View borrow tx on Arbiscan <ExternalLink size={10} />
                         </a>
                     )}
                 </div>
@@ -935,39 +1082,95 @@ function SettingsSection() {
 //  MAIN EXPORT 
 export type DashboardSection = 'dashboard' | 'market' | 'risk-engine' | 'governance' | 'settings';
 
+// ── Parse revert reason from error ──
+function parseContractError(err: unknown): string {
+    const e = err as { shortMessage?: string; message?: string; cause?: { reason?: string; data?: { message?: string } } };
+    if (e?.shortMessage) return e.shortMessage;
+    if (e?.cause?.reason) return e.cause.reason;
+    if (e?.cause?.data?.message) return e.cause.data.message;
+    if (e?.message) {
+        const match = e.message.match(/reason="?([^"\n]+)"?/);
+        if (match) return match[1];
+        const revert = e.message.match(/reverted with reason string '([^']+)'/);
+        if (revert) return revert[1];
+        return e.message.length > 200 ? e.message.slice(0, 200) + '...' : e.message;
+    }
+    return 'Unknown error — check console for details';
+}
+
 export default function LendingDashboard({ section = 'dashboard', onNavigate }: { section?: DashboardSection; onNavigate?: (s: DashboardSection) => void }) {
-    const { isConnected } = useAccount();
+    const { address, isConnected } = useAccount();
     const [localSection, setLocalSection] = useState<DashboardSection>(section);
     const [selectedAsset, setSelectedAsset] = useState<InstitutionalAsset | null>(null);
-    const [borrowStep, setBorrowStep] = useState(0);
+
+    // Toast state
+    const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
+
+    // Step states: idle -> pending -> confirming -> done | error
+    const [mintStep, setMintStep] = useState<'idle' | 'pending' | 'confirming' | 'done' | 'error'>('idle');
+    const [approveStep, setApproveStep] = useState<'idle' | 'pending' | 'confirming' | 'done' | 'error'>('idle');
+    const [borrowStep, setBorrowStep] = useState<'idle' | 'pending' | 'confirming' | 'done' | 'error'>('idle');
 
     useEffect(() => { setLocalSection(section); }, [section]);
 
     const activeSection = onNavigate ? section : localSection;
     const navigate = onNavigate || setLocalSection;
 
-    const { data: hashApprove, writeContract: writeApprove, isPending: isApprovePending } = useWriteContract();
-    const { isLoading: isApproving, isSuccess: isApproved } = useWaitForTransactionReceipt({ hash: hashApprove });
-    const { data: hashLoan, writeContract: writeLoan, isPending: isLoanPending, error: loanError } = useWriteContract();
-    const { isLoading: isLoaning, isSuccess: isLoaned } = useWaitForTransactionReceipt({ hash: hashLoan });
+    // ── Mint NFT ──
+    const { data: mintHash, writeContractAsync: writeMintAsync } = useWriteContract();
+    const { isSuccess: isMintConfirmed } = useWaitForTransactionReceipt({ hash: mintHash });
+    useEffect(() => { if (isMintConfirmed && mintStep === 'confirming') { setMintStep('done'); setToast({ message: `NFT #${selectedAsset?.id} minted to your wallet`, type: 'success' }); } }, [isMintConfirmed, mintStep, selectedAsset]);
 
-    useEffect(() => {
-        if (isApprovePending || isApproving) setBorrowStep(1);
-        else if (isApproved && borrowStep === 1) setBorrowStep(2);
-        else if (isLoanPending || isLoaning) setBorrowStep(3);
-        else if (isLoaned) setBorrowStep(4);
-    }, [isApprovePending, isApproving, isApproved, isLoanPending, isLoaning, isLoaned, borrowStep]);
+    // ── Approve NFT ──
+    const { data: approveHash, writeContractAsync: writeApproveAsync } = useWriteContract();
+    const { isSuccess: isApproveConfirmed } = useWaitForTransactionReceipt({ hash: approveHash });
+    useEffect(() => { if (isApproveConfirmed && approveStep === 'confirming') { setApproveStep('done'); setToast({ message: 'NFT approved for LendingPool', type: 'success' }); } }, [isApproveConfirmed, approveStep]);
 
-    const handleBorrow = (asset: InstitutionalAsset) => {
-        if (borrowStep === 0) {
-            writeApprove({ address: NFT_ADDRESS, abi: NFT_ABI, functionName: 'approve', args: [LENDING_POOL_ADDRESS, BigInt(asset.id)] });
-        } else if (borrowStep === 2) {
-            writeLoan({ address: LENDING_POOL_ADDRESS, abi: LENDING_ABI, functionName: 'depositCollateralAndBorrow', args: [BigInt(asset.id)] });
+    // ── Borrow ──
+    const { data: borrowTxHash, writeContractAsync: writeBorrowAsync } = useWriteContract();
+    const { isSuccess: isBorrowConfirmed } = useWaitForTransactionReceipt({ hash: borrowTxHash });
+    useEffect(() => { if (isBorrowConfirmed && borrowStep === 'confirming') { setBorrowStep('done'); setToast({ message: `Loan disbursed! ${fmtFull(selectedAsset?.maxLoan ?? 0)} USDC sent to your wallet.`, type: 'success' }); } }, [isBorrowConfirmed, borrowStep, selectedAsset]);
+
+    // ── Handlers with try/catch ──
+    const handleMint = async (asset: InstitutionalAsset) => {
+        if (!address) { setToast({ message: 'Connect your wallet first', type: 'error' }); return; }
+        try {
+            setMintStep('pending');
+            await writeMintAsync({ address: NFT_ADDRESS, abi: NFT_ABI, functionName: 'mint', args: [address, BigInt(asset.id)], maxFeePerGas: parseGwei('0.5'), maxPriorityFeePerGas: parseGwei('0.01') });
+            setMintStep('confirming');
+        } catch (err) {
+            console.error('Mint error:', err);
+            setMintStep('error');
+            setToast({ message: parseContractError(err), type: 'error' });
         }
     };
 
-    const handleCloseModal = () => { setSelectedAsset(null); setBorrowStep(0); };
-    const isBusy = isApprovePending || isApproving || isLoanPending || isLoaning;
+    const handleApprove = async (asset: InstitutionalAsset) => {
+        try {
+            setApproveStep('pending');
+            await writeApproveAsync({ address: NFT_ADDRESS, abi: NFT_ABI, functionName: 'approve', args: [LENDING_POOL_ADDRESS, BigInt(asset.id)], maxFeePerGas: parseGwei('0.5'), maxPriorityFeePerGas: parseGwei('0.01') });
+            setApproveStep('confirming');
+        } catch (err) {
+            console.error('Approve error:', err);
+            setApproveStep('error');
+            setToast({ message: parseContractError(err), type: 'error' });
+        }
+    };
+
+    const handleBorrow = async (asset: InstitutionalAsset) => {
+        try {
+            setBorrowStep('pending');
+            await writeBorrowAsync({ address: LENDING_POOL_ADDRESS, abi: LENDING_ABI, functionName: 'depositCollateralAndBorrow', args: [BigInt(asset.id)], maxFeePerGas: parseGwei('0.5'), maxPriorityFeePerGas: parseGwei('0.01') });
+            setBorrowStep('confirming');
+        } catch (err) {
+            console.error('Borrow error:', err);
+            setBorrowStep('error');
+            setToast({ message: parseContractError(err), type: 'error' });
+        }
+    };
+
+    const handleCloseModal = () => { setSelectedAsset(null); setMintStep('idle'); setApproveStep('idle'); setBorrowStep('idle'); };
+    const isBusy = mintStep === 'pending' || mintStep === 'confirming' || approveStep === 'pending' || approveStep === 'confirming' || borrowStep === 'pending' || borrowStep === 'confirming';
 
     if (!isConnected) {
         return (
@@ -1029,10 +1232,14 @@ export default function LendingDashboard({ section = 'dashboard', onNavigate }: 
 
             {selectedAsset && (
                 <AssetModal
-                    asset={selectedAsset} onClose={handleCloseModal} onBorrow={handleBorrow}
-                    borrowStep={borrowStep} isBusy={isBusy} txHash={hashLoan} txError={loanError?.message}
+                    asset={selectedAsset} onClose={handleCloseModal}
+                    onMint={handleMint} onApprove={handleApprove} onBorrow={handleBorrow}
+                    mintStep={mintStep} approveStep={approveStep} borrowStep={borrowStep}
+                    isBusy={isBusy} txHash={borrowTxHash} approveHash={approveHash} mintHash={mintHash}
                 />
             )}
+
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         </div>
     );
 }

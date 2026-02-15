@@ -1,0 +1,13 @@
+# Backend / Smart Contracts — not needed for Vercel frontend build
+evm-contracts/
+stylus-core/
+
+# Build artifacts
+target/
+artifacts/
+cache/
+coverage/
+
+# Environment files with secrets
+.env
+*.key

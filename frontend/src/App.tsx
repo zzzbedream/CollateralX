@@ -433,10 +433,10 @@ function HowItWorks() {
 // ─── Deployed Contracts Banner ───
 function DeployedContracts() {
     const contracts = [
-        { name: 'LendingPool', addr: '0xd9EE...1d66', full: '0xd9EE974233b089FCC4D541E1CdF54A7186F91d66', type: 'Solidity' },
+        { name: 'LendingPool', addr: '0xFc9f...b9bC', full: '0xFc9f8c4107c6d4c2AFBdB7D25A30447FaB63b9bC', type: 'Solidity' },
         { name: 'StylusValuator', addr: '0x0232...eee1', full: '0x023223d7b651a007dc42980cb9ca75f1e795eee1', type: 'Rust/WASM' },
-        { name: 'MockUSDC', addr: '0x5dAc...0355', full: '0x5dAc64216Aa03B88ebDC9E5b46625e4780550355', type: 'ERC-20' },
-        { name: 'MockNFT', addr: '0xDBb0...f4b', full: '0xDBb0CcB41C632596Ee50348CEc547B23B46E4f4b', type: 'ERC-721' },
+        { name: 'MockUSDC', addr: '0x265e...8429', full: '0x265e31a371eFdDC5E6922E68dEaf5045E57f8429', type: 'ERC-20' },
+        { name: 'MockNFT', addr: '0xAb78...DB2d', full: '0xAb78688e3B83f56c58bDf7D2520F5cA590EcDB2d', type: 'ERC-721' },
     ]
     return (
         <Section className="relative py-20 px-6">
